@@ -640,10 +640,6 @@ export function getChatScene(location: string): ChatScene {
   return SCENES[location] ?? fallbackScene(location);
 }
 
-export function allChatLocations(): readonly string[] {
-  return Object.keys(SCENES);
-}
-
 /**
  * Render the scene recipe as inline `style` for a <div> backdrop.
  * The consumer can layer a dark overlay on top if needed.

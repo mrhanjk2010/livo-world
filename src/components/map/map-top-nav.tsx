@@ -77,7 +77,6 @@ export function MapTopNav() {
         </div>
 
         <div className="pointer-events-auto flex items-center gap-[8px]">
-          {/* 主线入口暂时隐藏（保留 /stories 路由与资源，便于后续恢复）。 */}
           <button
             type="button"
             aria-label="好友"
