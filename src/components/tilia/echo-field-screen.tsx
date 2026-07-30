@@ -29,7 +29,13 @@ import {
 } from "@/lib/tilia/echo-field";
 import { ROOM_BY_ID } from "@/lib/tilia/train";
 
-const ANIM_MS = 280;
+/**
+ * 进出场是一次绕 Y 轴的翻转：顶栏右上角那枚按钮把世界页翻过去，露出
+ * 背面的星图；同一枚按钮再翻回来。所以两边的图标和位置都是同一套。
+ */
+const ANIM_MS = 460;
+/** 翻进来之前停在这个角度 —— 几乎侧着，只留一线。 */
+const FLIP_FROM_DEG = -92;
 const ACCENT = "#ffa16b";
 
 /** 半层高度的兜底值（设计稿：文案区 181 + 底部留白 16）。实测到就用实测的
@@ -142,6 +148,14 @@ export function EchoFieldScreen({
 }) {
   const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
+  /**
+   * 翻转落定后把 transform 撤成 `none`。留着一个 `rotateY(0)` 也是 transform，
+   * 会让这一层变成 backdrop root —— 底部半层那圈 `backdrop-blur` 采样的范围
+   * 跟着变，静止态的观感就和翻转前不一样了。
+   */
+  const [settled, setSettled] = useState(false);
+  /** 开了「减少动态效果」就不翻，退回原来那记淡入。 */
+  const [flip, setFlip] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** 点开的散件事件。和选中回响互斥 —— 底下只有一张半层。 */
   const [pickedId, setPickedId] = useState<string | null>(null);
@@ -381,10 +395,23 @@ export function EchoFieldScreen({
       };
     }
     if (!mounted) return;
+    // 关：先把 transform 装回去，再翻走 —— 两件事同一帧提交，`none` 到
+    // 侧转角度之间浏览器按单位矩阵插值，不会闪。
+    setSettled(false);
     setVisible(false);
     const t = setTimeout(() => setMounted(false), ANIM_MS);
     return () => clearTimeout(t);
   }, [open, mounted]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const t = setTimeout(() => setSettled(true), ANIM_MS);
+    return () => clearTimeout(t);
+  }, [visible]);
+
+  useEffect(() => {
+    setFlip(!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+  }, []);
 
   /*
    * 关闭时清掉选中：半层跟着往下滑走，收场干净；下次打开由上面那段重新
@@ -412,9 +439,22 @@ export function EchoFieldScreen({
          * 浏览器会「把聚焦元素滚进视野」，整层连黑纱一起被推走，底下的地图
          * 就从边上露出来了。clip 不是滚动容器，没得可滚。
          */
-        className={`absolute inset-0 overflow-clip transition-opacity duration-[280ms] ease-out ${
+        className={`absolute inset-0 overflow-clip ${
           visible ? "opacity-100" : "opacity-0"
         }`}
+        style={{
+          transform:
+            !flip || (visible && settled)
+              ? undefined
+              : `perspective(1400px) rotateY(${visible ? 0 : FLIP_FROM_DEG}deg)`,
+          /*
+            不透明度收得比翻转快得多：侧到七八十度那几帧本来就只剩一线，
+            让它先亮起来，省掉「一张薄片飞进来」的廉价感。
+          */
+          transition: flip
+            ? `transform ${ANIM_MS}ms cubic-bezier(0.22,1,0.36,1), opacity ${Math.round(ANIM_MS * 0.4)}ms ease-out`
+            : "opacity 280ms ease-out",
+        }}
       >
         {/*
           可拖的取景框。手势挂在这一层而不是各个光球上：从光球上按下去也
@@ -543,19 +583,24 @@ export function EchoFieldScreen({
           </p>
         </div>
 
+        {/*
+          和顶栏那枚入口是同一枚：同图标、同尺寸、同坐标（状态栏 53 + 顶栏
+          那行居中的 10 = 63，右 12）。翻转过程中它停在原处不动，读起来就是
+          「按着这一枚把世界页翻过来又翻回去」。
+        */}
         <button
           type="button"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={onClose}
-          aria-label="关闭"
-          className="absolute right-[16px] top-[62px] flex size-[29px] items-center justify-center rounded-full bg-black/30 backdrop-blur-[23px] transition-transform duration-200 active:scale-90"
+          aria-label="翻回世界页"
+          className="absolute right-[12px] top-[63px] flex size-[28px] items-center justify-center rounded-full bg-black/20 backdrop-blur-[23.2px] transition-[transform,filter] duration-200 hover:brightness-125 active:scale-90 active:brightness-150"
         >
           <Image
-            src="/figma/tilia/feed/icon-close.svg"
+            src="/figma/tilia/nav-echo-field.svg"
             alt=""
-            width={29}
-            height={29}
-            className="size-full"
+            width={20}
+            height={20}
+            className="size-[20px] max-w-none"
           />
         </button>
 
