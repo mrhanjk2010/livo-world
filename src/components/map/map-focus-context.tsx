@@ -117,7 +117,6 @@ export function MapFocusProvider({
       const xPct = poiXPct[label];
       if (xPct === undefined) {
         if (process.env.NODE_ENV !== "production") {
-          // eslint-disable-next-line no-console
           console.warn(`[MapFocus] unknown POI label: ${label}`);
         }
         return;

@@ -166,8 +166,6 @@ export function PannableMap({
     moved: boolean;
   } | null>(null);
 
-  const aspect = imageWidth / imageHeight;
-
   const boundMin = xBoundsPct?.min ?? 0;
   const boundMax = xBoundsPct?.max ?? 1;
 
