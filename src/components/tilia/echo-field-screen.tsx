@@ -36,6 +36,26 @@ import { ROOM_BY_ID } from "@/lib/tilia/train";
 const ANIM_MS = 460;
 /** 翻进来之前停在这个角度 —— 几乎侧着，只留一线。 */
 const FLIP_FROM_DEG = -92;
+
+/**
+ * 进和出的配时是不对称的，关键在不透明度什么时候走：
+ *
+ * 进：先亮起来（四成时长），剩下的路让转角走完。侧到七八十度那几帧本来
+ *     就只剩一线，全程陪着淡入会读成一张薄片飞进来。
+ * 出：反过来 —— 得先撑住不透明，让人真看见它转走，最后一段才淡掉。淡出
+ *     要是也用四成时长，六成的翻转就发生在全透明状态下，回到地图这一下
+ *     看着就只是一记淡出，翻转白做了。
+ */
+function flipTransition(entering: boolean): string {
+  const spin = `transform ${ANIM_MS}ms ${
+    entering ? "cubic-bezier(0.22,1,0.36,1)" : "cubic-bezier(0.4,0,1,1)"
+  }`;
+  const fade = entering
+    ? `opacity ${Math.round(ANIM_MS * 0.4)}ms ease-out`
+    : `opacity ${Math.round(ANIM_MS * 0.45)}ms ease-in ${Math.round(ANIM_MS * 0.55)}ms`;
+  return `${spin}, ${fade}`;
+}
+
 const ACCENT = "#ffa16b";
 
 /** 半层高度的兜底值（设计稿：文案区 181 + 底部留白 16）。实测到就用实测的
@@ -447,13 +467,7 @@ export function EchoFieldScreen({
             !flip || (visible && settled)
               ? undefined
               : `perspective(1400px) rotateY(${visible ? 0 : FLIP_FROM_DEG}deg)`,
-          /*
-            不透明度收得比翻转快得多：侧到七八十度那几帧本来就只剩一线，
-            让它先亮起来，省掉「一张薄片飞进来」的廉价感。
-          */
-          transition: flip
-            ? `transform ${ANIM_MS}ms cubic-bezier(0.22,1,0.36,1), opacity ${Math.round(ANIM_MS * 0.4)}ms ease-out`
-            : "opacity 280ms ease-out",
+          transition: flip ? flipTransition(visible) : "opacity 280ms ease-out",
         }}
       >
         {/*
