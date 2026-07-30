@@ -75,6 +75,10 @@ restore() {
   [ -f "$STASH/layout.tsx" ] && mv -f "$STASH/layout.tsx" "src/app/layout.tsx"
   [ -f "$STASH/next.config.ts" ] && mv -f "$STASH/next.config.ts" "next.config.ts"
   rmdir "$STASH" 2>/dev/null || true
+  # 导出时 @modal 被挪走了，Next 因此把 .next/types 里的 LayoutProps 写成
+  # 「没有 modal 插槽」的版本。留着它，紧接着跑 npm run typecheck 会报
+  # layout.tsx 缺 modal —— 源码其实没问题。所以连 .next 一起清掉。
+  rm -rf .next
 }
 # build 失败也要把源码模式恢复回来，否则本地 dev 会带着 export 配置跑。
 trap restore EXIT
