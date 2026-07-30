@@ -21,6 +21,7 @@ import {
   destinyOccupiedMemberIds,
   type DestinyMarkerDef,
 } from "@/lib/tilia/destiny-markers";
+import { DESTINY_CHAIN } from "@/lib/tilia/destiny-archive";
 import { ECHO_ARCHIVE, LOOSE_EVENTS } from "@/lib/tilia/echo-archive";
 import type { EchoMarkerDef } from "@/lib/tilia/echo-markers";
 import { SEED_ECHO_STORIES, type EchoStory } from "@/lib/tilia/echo-story";
@@ -50,7 +51,8 @@ import type { FeedItem } from "@/lib/tilia/world-feed";
 /**
  * 全屏星图的内容：档案里的旧回响 + 今天还挂在地图上的种子，时间正序，
  * 越新越靠下。散件（还没汇聚成回响的事件）由 `LOOSE_EVENTS` 单独给，它们
- * 不属于任何一枚回响。常量提到模块层，免得每次渲染都重排星图。
+ * 不属于任何一枚回响；走完的命运由 `DESTINY_CHAIN` 给，占画布右边那条道。
+ * 常量提到模块层，免得每次渲染都重排星图。
  */
 const ECHO_FIELD_STORIES = [...ECHO_ARCHIVE, ...SEED_ECHO_STORIES];
 
@@ -385,11 +387,12 @@ export function TiliaMapScreen() {
 
       <EchoSheet story={activeEcho} onClose={() => setActiveEcho(null)} />
 
-      {/* 历史回响的全屏星图，入口是顶栏右上角那枚按钮 */}
+      {/* 世界命运的全屏星图，入口是顶栏右上角那枚按钮 */}
       <EchoFieldScreen
         open={echoFieldOpen}
         stories={ECHO_FIELD_STORIES}
         loose={LOOSE_EVENTS}
+        destinies={DESTINY_CHAIN}
         onClose={() => setEchoFieldOpen(false)}
       />
 

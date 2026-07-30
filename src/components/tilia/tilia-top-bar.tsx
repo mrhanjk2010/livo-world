@@ -57,11 +57,11 @@ export function TiliaTopBar({ onOpenEchoes }: { onOpenEchoes: () => void }) {
           />
         </div>
 
-        {/* 回响星图入口（设计稿 `3471:13751`）：28 圆底玻璃 + 20 图标。 */}
+        {/* 世界命运星图入口（设计稿 `3471:13751`）：28 圆底玻璃 + 20 图标。 */}
         <button
           type="button"
           onClick={onOpenEchoes}
-          aria-label="世界回响：看这些动态汇聚成了什么"
+          aria-label="世界命运：看这些事汇聚成了什么"
           className="pointer-events-auto flex size-[28px] shrink-0 items-center justify-center rounded-full bg-black/20 backdrop-blur-[23.2px] transition-[transform,filter] duration-200 hover:brightness-125 active:scale-90 active:brightness-150"
         >
           <Image

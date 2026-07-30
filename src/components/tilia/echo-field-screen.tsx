@@ -18,11 +18,14 @@ import { StatusBar } from "@/components/mobile/status-bar";
 import { ECHO_ORB_CORE, EchoOrb } from "@/components/tilia/echo-orb";
 import { SpeakerStack, speakerName } from "@/components/tilia/tilia-avatar";
 import type { EchoFieldEntry } from "@/lib/tilia/echo-archive";
+import type { DestinyChainSeed } from "@/lib/tilia/destiny-archive";
 import {
   buildEchoField,
   ECHO_ORB_RADIUS,
   estimateNodeWidth,
+  FIELD_ZOOM,
   type EchoField,
+  type EchoFieldDestiny,
   type EchoFieldNode,
   type EchoFieldOrb,
   type LooseEvent,
@@ -57,12 +60,22 @@ function flipTransition(entering: boolean): string {
 }
 
 const ACCENT = "#ffa16b";
+/**
+ * 命运的调子，取地图上那枚标记的渐变中段（潜在的蓝紫、注定的粉橙）。
+ *
+ * 和回响的暖橙分开是必要的：这一屏上两种东西并排站着，颜色是唯一一眼就能
+ * 分出「这是已经落下的果」还是「这是一场还牵着人的命运」的线索。
+ */
+const DESTINY_ACCENT = "#5aa8ee";
+const DESTINED_ACCENT = "#ff8874";
 
 /** 半层高度的兜底值（设计稿：文案区 181 + 底部留白 16）。实测到就用实测的
  *  —— 挂了上游回响的那几条会高一截，取景避让得跟着走。 */
 const SHEET_H = 197;
 /** 散件那张半层要列「可以做什么」，天生更高一点。 */
 const LOOSE_SHEET_H = 220;
+/** 命运那张要同时列因和果，更高。 */
+const DESTINY_SHEET_H = 268;
 /** 光球和半层之间至少留这么多，不然球贴着半层顶边像被压着。 */
 const SHEET_GAP = 20;
 /** 状态栏 + 关闭按钮那一行，簇不能顶到这上面去。 */
@@ -106,13 +119,27 @@ const CHAIN_LINE = [1, 1, 0.6, 0.35] as const;
 
 /** 超过这个位移就算拖动，抬手时不再当成点选。 */
 const DRAG_SLOP = 8;
-/** 光球的命中区。视觉核心 44，光晕铺到 82 —— 人是照着光晕点的。 */
-const ORB_HIT = 64;
+
+/** 星图整体的放大倍数，和布局共用一个数（那边管格距和小卡）。 */
+const ZOOM = FIELD_ZOOM;
+
+/** 光球的命中区。视觉核心 44、光晕铺到 82，人是照着光晕点的。 */
+const ORB_HIT = Math.round(64 * ZOOM);
+
+/**
+ * 命运那枚标记的视觉尺寸：蝶形核心 + 底下那枚标题胶囊。
+ *
+ * 核心取和回响光球一样的 44（同样乘 ZOOM）：这一屏叫「世界命运」，命运和回响
+ * 是并列的两种东西，谁小一号就成了谁的注脚。
+ */
+const DESTINY_CORE = Math.round(44 * ZOOM);
+const DESTINY_WING = Math.round(30 * ZOOM);
+const DESTINY_PILL_H = Math.round(22 * ZOOM);
 
 type Pan = { x: number; y: number };
 type Point = { x: number; y: number };
 
-/** 一条汇聚线：事件/时机 → 回响，或更早的回响 → 后来的回响。 */
+/** 一条汇聚线：事件/时机 → 回响/命运，或前一枚 → 后一枚。 */
 type FlowEdge = {
   id: string;
   from: Point;
@@ -122,12 +149,33 @@ type FlowEdge = {
 };
 
 /**
- * 全屏世界回响星图 —— 设计稿 `3406:9892`（默认）/ `3407:10459`（选中）。
+ * 链条上的一枚 —— 回响或命运，抹掉区别之后的样子。
  *
- * 从动态卡右上那枚呼吸指示进来。动态页答的是「世界发生了什么」，这里答的
- * 是「那些事怎么长成了一条回响」：满图散着历史上所有回响，以及汇聚进它们
- * 的事件与时机 —— 还有一批谁都没接上的散件，世界发生的事本来就多于结出果
+ * 往回追「谁是谁的因」时不需要知道对面是果还是命运：两者都可能是上游，也
+ * 都可能是下游。所以链条只认这个结构，`isDestiny` 只用来决定画成什么样。
+ */
+type ChainPoint = {
+  id: string;
+  x: number;
+  y: number;
+  title: string;
+  isDestiny: boolean;
+  causeIds: readonly string[];
+};
+
+/**
+ * 全屏世界命运星图 —— 设计稿 `3406:9892`（默认）/ `3407:10459`（选中）。
+ *
+ * 从顶栏右上那枚按钮翻进来。动态页答的是「世界发生了什么」，这里答的是
+ * 「那些事怎么长成了一条回响」：满图散着历史上所有回响，以及汇聚进它们的
+ * 事件与时机 —— 还有一批谁都没接上的散件，世界发生的事本来就多于结出果
  * 的事。
+ *
+ * 最右边那条道上是命运（`DESTINY_CHAIN`）。它们和回响用同一套选中逻辑，因为
+ * 在因果里是同一种东西 —— 一枚命运既由更早的事件、回响、命运促成，走完之后
+ * 又成了后面那些的因。这条道自上而下就是演示主线：一句回应引出音乐厅的夜
+ * 场，夜场里聊到小提琴，琴在开箱检查里替你挡了一次，检查散场才有了去车头
+ * 的念头。原先这条线只写在手机框旁边的文字里，现在它在图上。
  *
  * 一屏装不下，也不该缩着装：画布比取景框大得多，四个方向都能拖（见
  * `buildEchoField`，画布尺寸跟着内容量长）。把内容压进一屏才是失真 ——
@@ -157,6 +205,7 @@ export function EchoFieldScreen({
   open,
   stories,
   loose,
+  destinies,
   onClose,
 }: {
   open: boolean;
@@ -164,6 +213,8 @@ export function EchoFieldScreen({
   stories: readonly EchoFieldEntry[];
   /** 还没汇聚成回响的事件。 */
   loose?: readonly LooseEvent[];
+  /** 已经走完的命运，时间正序（前一枚是后一枚的因）。 */
+  destinies?: readonly DestinyChainSeed[];
   onClose: () => void;
 }) {
   const [mounted, setMounted] = useState(false);
@@ -176,24 +227,80 @@ export function EchoFieldScreen({
   const [settled, setSettled] = useState(false);
   /** 开了「减少动态效果」就不翻，退回原来那记淡入。 */
   const [flip, setFlip] = useState(true);
+  /** 选中的那一枚 —— 可能是回响，也可能是命运。 */
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  /** 点开的散件事件。和选中回响互斥 —— 底下只有一张半层。 */
+  /** 点开的散件事件。和选中互斥 —— 底下只有一张半层。 */
   const [pickedId, setPickedId] = useState<string | null>(null);
 
-  const field = useMemo(() => buildEchoField(stories, loose), [stories, loose]);
+  const field = useMemo(
+    () => buildEchoField(stories, loose, destinies),
+    [stories, loose, destinies],
+  );
 
   const orbById = useMemo(
     () => new Map(field.orbs.map((o) => [o.story.id, o])),
     [field.orbs],
   );
-  const storyById = useMemo(
-    () => new Map(field.orbs.map((o) => [o.story.id, o.story])),
-    [field.orbs],
+  const destinyById = useMemo(
+    () => new Map(field.destinies.map((d) => [d.seed.id, d])),
+    [field.destinies],
   );
 
-  const selected = selectedId ? orbById.get(selectedId) ?? null : null;
+  /**
+   * 因果图：回响和命运合成一张表，边全部整理成「我的因是谁」。
+   *
+   * 命运声明的是「我促成了哪几枚回响」（`effectEchoIds`），方向和这里要的
+   * 反着 —— 在这儿把它翻过来挂到那枚回响的因上。让命运自己声明下游，是因为
+   * 回响那边的约束是「只指向更早的条目」，而命运比它促成的回响更早，从回响
+   * 往回指会和那条约束打架。
+   */
+  const pointById = useMemo((): ReadonlyMap<string, ChainPoint> => {
+    const causedBy = new Map<string, string[]>();
+    const add = (id: string, causeId: string) => {
+      const list = causedBy.get(id);
+      if (list) list.push(causeId);
+      else causedBy.set(id, [causeId]);
+    };
+
+    for (const o of field.orbs) {
+      for (const c of o.story.causeEchoIds ?? []) add(o.story.id, c);
+    }
+    for (const d of field.destinies) {
+      for (const c of d.seed.causeIds ?? []) add(d.seed.id, c);
+      for (const e of d.seed.effectEchoIds ?? []) add(e, d.seed.id);
+    }
+
+    const map = new Map<string, ChainPoint>();
+    for (const o of field.orbs) {
+      map.set(o.story.id, {
+        id: o.story.id,
+        x: o.x,
+        y: o.y,
+        title: o.story.title,
+        isDestiny: false,
+        causeIds: causedBy.get(o.story.id) ?? [],
+      });
+    }
+    for (const d of field.destinies) {
+      map.set(d.seed.id, {
+        id: d.seed.id,
+        x: d.x,
+        y: d.y,
+        title: d.seed.title,
+        isDestiny: true,
+        causeIds: causedBy.get(d.seed.id) ?? [],
+      });
+    }
+    return map;
+  }, [field.orbs, field.destinies]);
+
+  const selectedOrb = selectedId ? orbById.get(selectedId) ?? null : null;
+  const selectedDestiny = selectedId
+    ? destinyById.get(selectedId) ?? null
+    : null;
+  const selectedPoint = selectedId ? pointById.get(selectedId) ?? null : null;
   const selectedNodes = useMemo(
-    () => (selectedId ? field.nodes.filter((n) => n.echoId === selectedId) : []),
+    () => (selectedId ? field.nodes.filter((n) => n.ownerId === selectedId) : []),
     [field.nodes, selectedId],
   );
   const picked = useMemo(
@@ -201,41 +308,64 @@ export function EchoFieldScreen({
     [field.nodes, pickedId],
   );
 
-  const pickEcho = useCallback((id: string | null) => {
+  const pickPoint = useCallback((id: string | null) => {
     setPickedId(null);
     setSelectedId(id);
   }, []);
 
-  /** 选中那枚往回追出来的上游链条：每枚回响的代际 + 每一段连线。 */
+  /** 选中那枚往回追出来的上游链条：每一枚的代际 + 每一段连线。 */
   const chain = useMemo(
-    () => buildChain(selectedId, orbById),
-    [selectedId, orbById],
+    () => buildChain(selectedId, pointById),
+    [selectedId, pointById],
   );
 
-  /** 事件/时机汇进选中那枚，加上链条上一段段的回响→回响。 */
+  /**
+   * 事件/时机汇进选中那枚，加上链条上一段段的回响/命运。
+   *
+   * 只画进来的，不画出去的：选中那一枚在这一屏上就是当下这个果，能量往它那
+   * 里汇。它当然也会成为后来那些事的因，但那是下一枚被选中时的事 —— 同时朝
+   * 两个方向流，就分不出这一屏在讲谁了。往前走一格靠半层里那排「它促成了」
+   * 点进去，链条是走出来的。
+   */
   const flowEdges = useMemo((): readonly FlowEdge[] => {
-    if (!selected) return [];
+    if (!selectedPoint) return [];
     return [
       ...selectedNodes.map((n) => ({
         id: n.id,
         from: n,
-        to: selected,
+        to: selectedPoint,
         strength: 1,
       })),
       ...chain.edges,
     ];
-  }, [selected, selectedNodes, chain.edges]);
+  }, [selectedPoint, selectedNodes, chain.edges]);
 
-  // 默认选中的那枚：stories 是时间正序，最后一枚就是最近结出的那条回响。
-  const latest = useMemo(
-    () => field.orbs[field.orbs.length - 1] ?? null,
-    [field.orbs],
+  /**
+   * 一枚回响/命运此刻该有多亮：链上按代际，其余在有选中时退到一旁，没选中
+   * 时是通览的弱化态。
+   */
+  const glowOf = useCallback(
+    (id: string): number => {
+      const d = chain.depth.get(id);
+      if (d !== undefined) return CHAIN_ORB[d] ?? DIM_ORB_ASIDE;
+      return selectedId ? DIM_ORB_ASIDE : DIM_ORB;
+    },
+    [chain.depth, selectedId],
   );
+
+  /*
+   * 默认选中的那枚：两条序列都是时间正序，最后一枚就是最近的。命运优先 ——
+   * 主线的末端是这张图上最新的东西，而且它上游最长，一进来就能看见整条链
+   * 怎么一节一节接过来的。没有命运才退回最近那条回响。
+   */
+  const latest = useMemo(() => {
+    const d = field.destinies[field.destinies.length - 1];
+    if (d) return pointById.get(d.seed.id) ?? null;
+    const o = field.orbs[field.orbs.length - 1];
+    return o ? pointById.get(o.story.id) ?? null : null;
+  }, [field.destinies, field.orbs, pointById]);
   const latestNodes = useMemo(
-    () =>
-      latest
-        ? field.nodes.filter((n) => n.echoId === latest.story.id)
-        : [],
+    () => (latest ? field.nodes.filter((n) => n.ownerId === latest.id) : []),
     [field.nodes, latest],
   );
 
@@ -252,7 +382,12 @@ export function EchoFieldScreen({
    */
   const [echoSheetH, setEchoSheetH] = useState(SHEET_H);
   const [looseSheetH, setLooseSheetH] = useState(LOOSE_SHEET_H);
-  const sheetH = pickedId ? looseSheetH : echoSheetH;
+  const [destinySheetH, setDestinySheetH] = useState(DESTINY_SHEET_H);
+  const sheetH = pickedId
+    ? looseSheetH
+    : selectedDestiny
+      ? destinySheetH
+      : echoSheetH;
 
   const clampPan = useCallback(
     (p: Pan): Pan => ({
@@ -275,9 +410,12 @@ export function EchoFieldScreen({
   }, [mounted]);
 
   /*
-   * 开场：选中最近那枚回响，取景直接落在它那一簇上（不做动画 —— 一进来
-   * 就镜头飞一段像在演，而且人还没看清就被移走了）。它两侧、上下都还留
-   * 着别的簇，「图比这一屏大」这件事照样说得出来。
+   * 开场：选中最近那枚，取景直接落在它那一簇上（不做动画 —— 一进来就镜头
+   * 飞一段像在演，而且人还没看清就被移走了）。它两侧、上下都还留着别的簇，
+   * 「图比这一屏大」这件事照样说得出来。
+   *
+   * 避让要按它自己那张半层的高度算：这一刻 `selectedId` 还没落到 state 里，
+   * `sheetH` 报的仍是回响那张，直接用会先落在偏下的位置、下一帧再被顶上去。
    */
   const openedRef = useRef(false);
   useEffect(() => {
@@ -288,11 +426,16 @@ export function EchoFieldScreen({
     if (openedRef.current) return;
     openedRef.current = true;
     setAnimatePan(false);
-    setSelectedId(latest?.story.id ?? null);
+    setSelectedId(latest?.id ?? null);
     setPan(
       clampPan(
         latest
-          ? panForOpen(latest, latestNodes, viewport, sheetH)
+          ? panForOpen(
+              latest,
+              latestNodes,
+              viewport,
+              latest.isDestiny ? destinySheetH : echoSheetH,
+            )
           : {
               x: (viewport.w - field.width) / 2,
               y: (viewport.h - field.contentHeight) / 2,
@@ -305,18 +448,21 @@ export function EchoFieldScreen({
     latest,
     latestNodes,
     viewport,
-    sheetH,
+    destinySheetH,
+    echoSheetH,
     field.width,
     field.contentHeight,
   ]);
 
   useEffect(() => {
-    if (!selected) return;
+    if (!selectedPoint) return;
     setAnimatePan(true);
     setPan((prev) =>
-      clampPan(panForCluster(selected, selectedNodes, viewport, prev, sheetH)),
+      clampPan(
+        panForCluster(selectedPoint, selectedNodes, viewport, prev, sheetH),
+      ),
     );
-  }, [selected, selectedNodes, viewport, sheetH, clampPan]);
+  }, [selectedPoint, selectedNodes, viewport, sheetH, clampPan]);
 
   // 散件同理：点开的那张卡也不能被自己的半层压住。
   useEffect(() => {
@@ -452,7 +598,7 @@ export function EchoFieldScreen({
       <section
         role="dialog"
         aria-modal="true"
-        aria-label="世界回响"
+        aria-label="世界命运"
         /*
          * overflow-clip 而不是 -hidden：hidden 会造出一个可被程序滚动的容
          * 器，而画布和半层都远超出这一屏 —— 点中一枚落在框外的光球/散件，
@@ -520,13 +666,14 @@ export function EchoFieldScreen({
             <FlowLines edges={flowEdges} field={field} />
 
             {field.nodes.map((node) => {
-              const brewable = node.echoId === null && node.brewing !== undefined;
+              const brewable =
+                node.ownerId === null && node.brewing !== undefined;
               return (
                 <FieldNode
                   key={node.id}
                   node={node}
-                  /* 散件的 echoId 是 null，别让它和「谁都没选」撞上 */
-                  lit={selectedId !== null && node.echoId === selectedId}
+                  /* 散件的 ownerId 是 null，别让它和「谁都没选」撞上 */
+                  lit={selectedId !== null && node.ownerId === selectedId}
                   picked={node.id === pickedId}
                   /*
                    * 有东西被选中时，别的散件退到和链外回响同一档：这一屏此
@@ -547,26 +694,29 @@ export function EchoFieldScreen({
               );
             })}
 
-            {field.orbs.map((orb) => {
-              const depth = chain.depth.get(orb.story.id);
-              return (
-                <FieldOrb
-                  key={orb.story.id}
-                  orb={orb}
-                  selected={orb.story.id === selectedId}
-                  opacity={
-                    depth !== undefined
-                      ? CHAIN_ORB[depth] ?? DIM_ORB_ASIDE
-                      : selectedId
-                        ? DIM_ORB_ASIDE
-                        : DIM_ORB
-                  }
-                  onSelect={() =>
-                    pickEcho(orb.story.id === selectedId ? null : orb.story.id)
-                  }
-                />
-              );
-            })}
+            {field.orbs.map((orb) => (
+              <FieldOrb
+                key={orb.story.id}
+                orb={orb}
+                selected={orb.story.id === selectedId}
+                opacity={glowOf(orb.story.id)}
+                onSelect={() =>
+                  pickPoint(orb.story.id === selectedId ? null : orb.story.id)
+                }
+              />
+            ))}
+
+            {field.destinies.map((d) => (
+              <FieldDestiny
+                key={d.seed.id}
+                destiny={d}
+                selected={d.seed.id === selectedId}
+                opacity={glowOf(d.seed.id)}
+                onSelect={() =>
+                  pickPoint(d.seed.id === selectedId ? null : d.seed.id)
+                }
+              />
+            ))}
           </div>
         </div>
 
@@ -588,7 +738,7 @@ export function EchoFieldScreen({
           }`}
         >
           <p className="text-[15px] font-medium leading-[normal] text-white/90">
-            世界回响
+            世界命运
           </p>
           <p className="text-[11px] leading-[normal] text-white/40">
             {selectedId || pickedId
@@ -619,10 +769,17 @@ export function EchoFieldScreen({
         </button>
 
         <EchoDetailSheet
-          story={selected?.story ?? null}
-          storyById={storyById}
-          onPickStory={pickEcho}
+          story={selectedOrb?.story ?? null}
+          pointById={pointById}
+          onPickPoint={pickPoint}
           onMeasure={setEchoSheetH}
+        />
+
+        <DestinyDetailSheet
+          destiny={selectedDestiny?.seed ?? null}
+          pointById={pointById}
+          onPickPoint={pickPoint}
+          onMeasure={setDestinySheetH}
         />
 
         <LooseEventSheet node={picked} onMeasure={setLooseSheetH} />
@@ -639,21 +796,24 @@ function clamp(v: number, min: number, max: number): number {
 /* ─────────────────────────── 上游链条 ─────────────────────────── */
 
 /**
- * 从选中那枚往回追上游回响，逐层展开到 `MAX_CHAIN_DEPTH`。
+ * 从选中那枚往回追上游，逐层展开到 `MAX_CHAIN_DEPTH`。
  *
- * 返回每枚回响的代际（选中的是 0）和每一段连线。同一枚可能被两条支线同
- * 时指到（会客厅那枚就是），代际按先到的那层算 —— 取最近的一条路径，它
- * 是「离当前这个果最近的因」，画得亮一点是对的。
+ * 回响和命运在这里不分家（见 `ChainPoint`）：一条链可以是「事件 → 命运 →
+ * 命运 → 回响」，往回追的时候只问「谁是我的因」。
+ *
+ * 返回每一枚的代际（选中的是 0）和每一段连线。同一枚可能被两条支线同时
+ * 指到（会客厅那枚就是），代际按先到的那层算 —— 取最近的一条路径，它是
+ * 「离当前这个果最近的因」，画得亮一点是对的。
  *
  * `depth` 里记过就不再展开，顺手也就防住了环。
  */
 function buildChain(
   selectedId: string | null,
-  orbById: ReadonlyMap<string, EchoFieldOrb>,
+  pointById: ReadonlyMap<string, ChainPoint>,
 ): { depth: ReadonlyMap<string, number>; edges: readonly FlowEdge[] } {
   const depth = new Map<string, number>();
   const edges: FlowEdge[] = [];
-  if (!selectedId || !orbById.has(selectedId)) return { depth, edges };
+  if (!selectedId || !pointById.has(selectedId)) return { depth, edges };
 
   depth.set(selectedId, 0);
   let frontier = [selectedId];
@@ -661,10 +821,10 @@ function buildChain(
   for (let d = 1; d <= MAX_CHAIN_DEPTH && frontier.length > 0; d += 1) {
     const next: string[] = [];
     for (const id of frontier) {
-      const to = orbById.get(id);
+      const to = pointById.get(id);
       if (!to) continue;
-      for (const causeId of to.story.causeEchoIds ?? []) {
-        const from = orbById.get(causeId);
+      for (const causeId of to.causeIds) {
+        const from = pointById.get(causeId);
         if (!from) continue;
         edges.push({
           id: `${causeId}--${id}`,
@@ -699,20 +859,37 @@ function buildChain(
  * 塞进一屏就得缩，缩了小卡就变形，而且那样也不再是「还长着」的样子了。
  */
 function panForCluster(
-  orb: EchoFieldOrb,
+  head: ChainPoint,
   nodes: readonly EchoFieldNode[],
   viewport: { w: number; h: number },
   current: Pan,
   sheetH: number,
 ): Pan {
-  let box: Box = {
-    left: orb.x - ECHO_ORB_RADIUS,
-    right: orb.x + ECHO_ORB_RADIUS,
-    top: orb.y - ECHO_ORB_RADIUS,
-    bottom: orb.y + ECHO_ORB_RADIUS,
-  };
+  let box = headBox(head);
   for (const n of nodes) box = union(box, nodeBox(n));
   return panForBox(box, viewport, current, sheetH);
+}
+
+/**
+ * 选中那一枚自己占多少地方。命运是「蝶形 + 底下一枚标题胶囊」，横向由标题
+ * 撑开、重心偏下，和光球那种正圆不是一回事，避让得按各自的形状算。
+ */
+function headBox(p: ChainPoint): Box {
+  if (!p.isDestiny) {
+    return {
+      left: p.x - ECHO_ORB_RADIUS,
+      right: p.x + ECHO_ORB_RADIUS,
+      top: p.y - ECHO_ORB_RADIUS,
+      bottom: p.y + ECHO_ORB_RADIUS,
+    };
+  }
+  const halfW = Math.max(DESTINY_CORE, p.title.length * 14 + 42) / 2;
+  return {
+    left: p.x - halfW,
+    right: p.x + halfW,
+    top: p.y - DESTINY_CORE / 2 - 6,
+    bottom: p.y + DESTINY_CORE / 2 + DESTINY_PILL_H,
+  };
 }
 
 /** 点开一枚散件事件时，只需要让那一张小卡自己露在半层之上。 */
@@ -774,17 +951,17 @@ function panForBox(
  * 「正看着某处」可言，居中最省解释。
  */
 function panForOpen(
-  orb: EchoFieldOrb,
+  head: ChainPoint,
   nodes: readonly EchoFieldNode[],
   viewport: { w: number; h: number },
   sheetH: number,
 ): Pan {
   const midY = (SAFE_TOP + viewport.h - sheetH - SHEET_GAP) / 2;
   return panForCluster(
-    orb,
+    head,
     nodes,
     viewport,
-    { x: viewport.w / 2 - orb.x, y: midY - orb.y },
+    { x: viewport.w / 2 - head.x, y: midY - head.y },
     sheetH,
   );
 }
@@ -955,13 +1132,123 @@ function FieldOrb({
         transform: `translate(-50%, -50%) scale(${selected ? 1.08 : 1})`,
       }}
     >
-      {/* 命中区比球大一圈，球本身仍按设计稿的 44 居中放 */}
+      {/*
+        命中区比球大一圈，球本身仍按设计稿的 44 画，再整体缩放到 ZOOM ——
+        `EchoOrb` 内部那些光晕偏移都是写死的 px（地图标记也用同一份），放在
+        缩放盒子里等比放大，比给它加一路 size 参数干净。
+      */}
       <span
-        className="absolute left-1/2 top-1/2 block -translate-x-1/2 -translate-y-1/2"
-        style={{ width: ECHO_ORB_CORE, height: ECHO_ORB_CORE }}
+        className="absolute left-1/2 top-1/2 block"
+        style={{
+          width: ECHO_ORB_CORE,
+          height: ECHO_ORB_CORE,
+          transform: `translate(-50%, -50%) scale(${ZOOM})`,
+        }}
       >
         {/* 只有选中那颗在喘：上游也喘的话，就分不出谁是当下这个果了 */}
         <EchoOrb breathe={selected} />
+      </span>
+    </button>
+  );
+}
+
+/**
+ * 星图上的一枚命运。
+ *
+ * 借地图上那枚标记的两样东西 —— 蝶形和标题胶囊，以及潜在／注定那两种配色。
+ * 借是有理由的：人在地图上就是靠这两样认出「这是一场命运」的，换一套画法只
+ * 会让人以为这是第三种东西。缩到星图的尺度：漩涡和雾气去掉（满图十几枚会糊
+ * 成一片），只留蝶形、一圈冷光和那枚胶囊。
+ *
+ * 胶囊是绝对定位、探出按钮盒子之外的 —— 它仍然属于这个 <button>，所以点标题
+ * 和点蝶形是同一个动作。命中判定按核心那圈走，连线也接在核心圆心上。
+ *
+ * 选中时那圈冷光铺开一倍，但线只往它这儿汇、不往外走（见 `flowEdges`）：这
+ * 一枚此刻是被看的那个果，能量流向它，不从它流出去。
+ */
+function FieldDestiny({
+  destiny,
+  selected,
+  opacity,
+  onSelect,
+}: {
+  destiny: EchoFieldDestiny;
+  selected: boolean;
+  opacity: number;
+  onSelect: () => void;
+}) {
+  const { seed } = destiny;
+  const destined = seed.kind === "destined";
+  const accent = destined ? DESTINED_ACCENT : DESTINY_ACCENT;
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      aria-label={`${destined ? "注定" : "潜在"}命运：${seed.title}`}
+      className="pointer-events-auto absolute cursor-[inherit] transition-[opacity,transform] duration-500 ease-out"
+      style={{
+        left: destiny.x,
+        top: destiny.y,
+        width: DESTINY_CORE,
+        height: DESTINY_CORE,
+        opacity,
+        transform: `translate(-50%, -50%) scale(${selected ? 1.06 : 1})`,
+      }}
+    >
+      {/* 冷光垫在最底下，选中时铺开一倍 —— 命运是「牵着的」，不是在喘 */}
+      <span
+        className="absolute left-1/2 top-1/2 block -translate-x-1/2 -translate-y-1/2 rounded-full transition-[width,height,opacity] duration-500 ease-out"
+        style={{
+          width: selected ? DESTINY_CORE * 2.4 : DESTINY_CORE * 1.5,
+          height: selected ? DESTINY_CORE * 2.4 : DESTINY_CORE * 1.5,
+          background: `radial-gradient(circle, ${accent}59 0%, ${accent}00 70%)`,
+          opacity: selected ? 1 : 0.7,
+        }}
+      />
+
+      <span
+        className="absolute inset-0 flex items-center justify-center rounded-full border transition-colors duration-500"
+        style={{
+          borderColor: `${accent}${selected ? "99" : "4d"}`,
+          background: `${accent}${selected ? "26" : "14"}`,
+          boxShadow: selected ? `0 0 14px ${accent}66` : undefined,
+        }}
+      >
+        <Image
+          src={
+            destined
+              ? "/figma/tilia/destiny/butterfly-destined.svg"
+              : "/figma/tilia/destiny/butterfly-potential.svg"
+          }
+          alt=""
+          width={DESTINY_WING}
+          height={DESTINY_WING}
+          draggable={false}
+          className="max-w-none -rotate-[18deg]"
+          style={{ width: DESTINY_WING, height: DESTINY_WING }}
+        />
+      </span>
+
+      {/*
+        胶囊。地图上是满色渐变，这里压到半透明 —— 满图十几枚满色胶囊会盖过
+        回响光球，而这一屏两者是并列的。选中那枚才回到接近地图的浓度。
+      */}
+      <span
+        className="absolute left-1/2 flex w-max -translate-x-1/2 items-center gap-[5px] rounded-full border py-[4px] pl-[6px] pr-[10px] transition-colors duration-500"
+        style={{
+          top: DESTINY_CORE + 7,
+          borderColor: `${accent}${selected ? "80" : "33"}`,
+          background: selected
+            ? `linear-gradient(90deg, ${accent}cc, ${accent}80)`
+            : `${accent}1f`,
+        }}
+      >
+        <SpeakerStack speakers={seed.speakers} size={17} overlap={6} />
+        <span className="whitespace-nowrap text-[13px] font-medium leading-none text-white/90">
+          {seed.title}
+        </span>
       </span>
     </button>
   );
@@ -1143,13 +1430,13 @@ function brewingPct(v: number): string {
  */
 function EchoDetailSheet({
   story,
-  storyById,
-  onPickStory,
+  pointById,
+  onPickPoint,
   onMeasure,
 }: {
   story: EchoFieldEntry | null;
-  storyById: ReadonlyMap<string, EchoFieldEntry>;
-  onPickStory: (id: string) => void;
+  pointById: ReadonlyMap<string, ChainPoint>;
+  onPickPoint: (id: string) => void;
   /** 半层高度随内容变（有没有上游、标题多长），取景避让要按实测的算。 */
   onMeasure: (h: number) => void;
 }) {
@@ -1171,9 +1458,7 @@ function EchoDetailSheet({
   }, [onMeasure]);
 
   const room = shown ? ROOM_BY_ID[shown.roomId] : null;
-  const upstream = (shown?.causeEchoIds ?? [])
-    .map((id) => storyById.get(id))
-    .filter((s): s is EchoFieldEntry => !!s);
+  const upstream = shown ? pointById.get(shown.id)?.causeIds ?? [] : [];
 
   return (
     <div
@@ -1219,36 +1504,192 @@ function EchoDetailSheet({
             {shown.resultText}
           </p>
 
-          {upstream.length > 0 ? (
-            <div className="flex flex-col gap-[6px] border-t border-white/10 pt-[10px]">
-              <p className="text-[11px] leading-[normal] text-white/35">
-                也汇进了更早的回响
-              </p>
-              <div className="flex flex-wrap gap-[6px]">
-                {upstream.map((u) => (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onClick={() => onPickStory(u.id)}
-                    className="flex items-center gap-[4px] rounded-full border border-[#ffa16b]/25 bg-[#ffa16b]/[0.08] py-[5px] pl-[8px] pr-[10px] transition-transform duration-200 active:scale-95"
-                  >
-                    <span
-                      className="block size-[6px] shrink-0 rounded-full"
-                      style={{
-                        background: ACCENT,
-                        boxShadow: `0 0 6px ${ACCENT}`,
-                      }}
-                    />
-                    <span className="text-[12px] font-medium leading-[normal] text-white/80">
-                      {u.title}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
+          <CausePills
+            label="也汇进了更早的因"
+            ids={upstream}
+            pointById={pointById}
+            onPick={onPickPoint}
+          />
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * 选中命运之后的半层。
+ *
+ * 回响那张只挂上游，因为回响是链条的末端 —— 它已经落下了，没有下文。命运
+ * 两头都有：它由更早的事件、回响、命运促成，走完之后又在别处沉下了一枚回
+ * 响。所以这张半层同时列「由此而来」和「它促成了」，两排都点得进去 —— 长
+ * 链路是这么一格一格走出来的。
+ *
+ * 主线最后那枚（藏进车头）没有「它促成了」：它是最新的一枚，还没结出东西。
+ * 那一栏就不出现，不写「暂无」—— 空栏位是在替世界许诺一个结果。
+ */
+function DestinyDetailSheet({
+  destiny,
+  pointById,
+  onPickPoint,
+  onMeasure,
+}: {
+  destiny: DestinyChainSeed | null;
+  pointById: ReadonlyMap<string, ChainPoint>;
+  onPickPoint: (id: string) => void;
+  onMeasure: (h: number) => void;
+}) {
+  // 同 EchoDetailSheet：关掉时留着上一条，往下滑走的过程里还有内容可看。
+  const [shown, setShown] = useState<DestinyChainSeed | null>(destiny);
+  useEffect(() => {
+    if (destiny) setShown(destiny);
+  }, [destiny]);
+
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const measure = () => onMeasure(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [onMeasure]);
+
+  const room = shown ? ROOM_BY_ID[shown.roomId] : null;
+  const destined = shown?.kind === "destined";
+  const accent = destined ? DESTINED_ACCENT : DESTINY_ACCENT;
+
+  return (
+    <div
+      ref={rootRef}
+      onPointerDown={(e) => e.stopPropagation()}
+      className={`absolute bottom-0 left-0 w-full overflow-hidden rounded-t-[16px] bg-black/20 pb-[16px] backdrop-blur-[10px] transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        destiny ? "translate-y-0" : "translate-y-full"
+      }`}
+      aria-hidden={!destiny}
+    >
+      <div className="absolute inset-0 bg-[#0c1135]/50" />
+
+      {shown ? (
+        <div className="relative flex flex-col gap-[12px] px-[20px] pb-[24px] pt-[20px]">
+          <div className="flex items-start justify-between gap-[12px]">
+            <div className="flex flex-col gap-[6px]">
+              <p
+                className="text-[11px] leading-[normal]"
+                style={{ color: `${accent}d9` }}
+              >
+                {destined ? "注定命运" : "潜在命运"}
+              </p>
+              <h2 className="text-[18px] font-medium leading-[normal] text-white">
+                {shown.title}
+              </h2>
+            </div>
+            {room ? (
+              <div className="flex shrink-0 items-center gap-[2px] py-[3px]">
+                <Image
+                  src="/figma/tilia/echo/icon-location.svg"
+                  alt=""
+                  width={16}
+                  height={16}
+                  className="size-[16px]"
+                />
+                <p className="text-[12px] leading-[18px] text-white/60">
+                  {room.name}
+                </p>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="flex items-center gap-[4px]">
+            <SpeakerStack speakers={shown.speakers} size={16} overlap={6} />
+            <p className="text-[12px] font-medium leading-[1.6] text-white/70 opacity-80">
+              {shown.speakers.map(speakerName).join("、")}
+            </p>
+          </div>
+
+          <p className="text-[13px] font-medium leading-[22px] text-white/70">
+            {shown.outcomeText}
+          </p>
+
+          <CausePills
+            label="被这些牵出来"
+            ids={pointById.get(shown.id)?.causeIds ?? []}
+            pointById={pointById}
+            onPick={onPickPoint}
+          />
+          <CausePills
+            label="它促成了"
+            ids={shown.effectEchoIds ?? []}
+            pointById={pointById}
+            onPick={onPickPoint}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * 半层末尾那排可点的上下游。
+ *
+ * 星图上的线只说明「这枚是被别的东西推出来的」，说不出是哪几枚 —— 线常常
+ * 伸出取景框。这里点一下就顺着链条走一格。回响是暖橙的圆点，命运是冷色的
+ * 蝶形，和图上一致：认色不认字。
+ */
+function CausePills({
+  label,
+  ids,
+  pointById,
+  onPick,
+}: {
+  label: string;
+  ids: readonly string[];
+  pointById: ReadonlyMap<string, ChainPoint>;
+  onPick: (id: string) => void;
+}) {
+  const points = ids
+    .map((id) => pointById.get(id))
+    .filter((p): p is ChainPoint => !!p);
+  if (points.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-[6px] border-t border-white/10 pt-[10px]">
+      <p className="text-[11px] leading-[normal] text-white/35">{label}</p>
+      <div className="flex flex-wrap gap-[6px]">
+        {points.map((p) => {
+          const accent = p.isDestiny ? DESTINY_ACCENT : ACCENT;
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => onPick(p.id)}
+              className="flex items-center gap-[4px] rounded-full border py-[5px] pl-[8px] pr-[10px] transition-transform duration-200 active:scale-95"
+              style={{
+                borderColor: `${accent}40`,
+                background: `${accent}14`,
+              }}
+            >
+              {p.isDestiny ? (
+                <Image
+                  src="/figma/tilia/destiny/butterfly-potential.svg"
+                  alt=""
+                  width={10}
+                  height={10}
+                  className="size-[10px] max-w-none shrink-0"
+                />
+              ) : (
+                <span
+                  className="block size-[6px] shrink-0 rounded-full"
+                  style={{ background: accent, boxShadow: `0 0 6px ${accent}` }}
+                />
+              )}
+              <span className="text-[12px] font-medium leading-[normal] text-white/80">
+                {p.title}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
