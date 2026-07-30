@@ -1,0 +1,398 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-bg: oklch(0.99 0 0);
+  --color-fg: oklch(0.18 0.02 270);
+  --color-muted: oklch(0.55 0.02 270);
+  --color-border: oklch(0.92 0.01 270);
+  --color-accent: oklch(0.62 0.18 280);
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei",
+    sans-serif;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+}
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/*
+ * Fade keyframe used by <PageTransition> for lateral top-level route
+ * changes (e.g. `/map` ↔ `/worlds`). Chat transitions are handled by
+ * ChatModal's intercepting-route overlay, which animates via inline
+ * transforms and doesn't need a keyframe.
+ */
+@keyframes livo-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* 命运群聊逐条出现：轻微上浮 + 淡入。 */
+@keyframes livo-chat-beat-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/*
+ * Gentle scale pulse used by the POI event badge. Paired with
+ * Tailwind's `animate-ping` halo so the badge itself breathes even
+ * between ripple cycles, selling the "event is live" feeling.
+ */
+@keyframes livo-pin-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.12); }
+}
+
+/*
+ * 世界动态表头绿点的呼吸：本体轻微缩放 + 外发光强弱起伏，
+ * 表达「正在 live」，不是开关态。
+ */
+@keyframes livo-live-breathe {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 4px 0 #02c262;
+  }
+  50% {
+    transform: scale(1.2);
+    box-shadow: 0 0 10px 2px rgba(2, 194, 98, 0.85);
+  }
+}
+
+@keyframes livo-live-halo {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+
+/*
+ * 世界回响标记的外圈呼吸：极轻的缩放起伏，让金橙光斑「活着」。
+ */
+@keyframes livo-echo-breathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+/*
+ * 全屏回响星图的汇聚连线：一段亮弧从事件那头跑到回响里，循环不停。
+ *
+ * 走 `stroke-dashoffset` 而不是位移某个光点 —— 弧线是算出来的贝塞尔，
+ * 沿它跑只有虚线偏移这一条不需要知道路径参数方程的路。负值是往路径正
+ * 方向推，而 path 是从事件画到回响的，所以方向就是「往回响里汇」。
+ * 配合线本身「事件端透明 → 回响端满色」的渐变，跑到终点时最亮。
+ *
+ * dasharray/offset 的单位由 path 上的 pathLength=100 归一化，长短不同的
+ * 弧线于是同时到达。
+ */
+@keyframes livo-echo-flow {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+
+/*
+ * 命运光环旋涡：逆时针缓慢旋转（负角度）。
+ * 外圈 / 中圈 / 雾层用不同时长叠在一起，更像涡旋。
+ */
+@keyframes livo-destiny-swirl {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+/*
+ * 车厢开放：折棚门被推开的那一下，地图从连接处那一侧横向抹开。
+ *
+ * clip-path 从贴着连接处的一条窄缝展开到整段宽度，配合轻微的横向
+ * 位移与亮度回落——读起来像视野顺着开了的门往里铺过去，而不是一张
+ * 图淡入。驾驶车厢挂在主车厢左侧，所以是从右沿往左抹。
+ */
+@keyframes livo-carriage-emerge {
+  from {
+    clip-path: inset(0 0 0 100%);
+    transform: translateX(14px);
+    filter: brightness(2.2) saturate(0.4);
+    opacity: 0.15;
+  }
+  60% {
+    filter: brightness(1.25) saturate(0.85);
+    opacity: 1;
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    transform: translateX(0);
+    filter: brightness(1) saturate(1);
+    opacity: 1;
+  }
+}
+
+/* 回应推荐短语：轻柔上下漂浮 */
+@keyframes livo-phrase-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+/*
+ * 流行划过：流星沿对角线高速掠过（头亮尾淡）。
+ * 位移用 --mx/--my；角度用 --ang。
+ */
+@keyframes livo-meteor-pass {
+  0% {
+    opacity: 0;
+    transform: translate3d(var(--mx0), var(--my0), 0) rotate(var(--ang))
+      scaleX(0.35);
+  }
+  8% {
+    opacity: 1;
+  }
+  72% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--mx1), var(--my1), 0) rotate(var(--ang))
+      scaleX(1.15);
+  }
+}
+
+/* 星核轻呼吸 */
+@keyframes livo-star-pulse {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.06);
+    filter: brightness(1.12);
+  }
+}
+
+/* 星尘闪烁 */
+@keyframes livo-spark-twinkle {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.7);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  70% {
+    opacity: 0.55;
+    transform: scale(0.9);
+  }
+}
+
+/*
+ * Short entrance for the POI event badge when the per-pin scheduler
+ * flips from idle → event. Fades and scales up from ~70% so the badge
+ * doesn't just "pop" into existence.
+ */
+@keyframes livo-pin-fade-in {
+  from { opacity: 0; transform: translateY(-50%) scale(0.7); }
+  to   { opacity: 1; transform: translateY(-50%) scale(1);   }
+}
+
+/*
+ * Transient highlight fired on a POI chip when a World-Broadcast pill
+ * is tapped and the map camera pans to that location.
+ *
+ * Pure SCALE pulse — the chip grows to 1.28× then springs back with a
+ * tiny under-shoot (0.94) before settling at 1.0. Only the `transform`
+ * property is touched; horizontal centering is handled by Tailwind's
+ * `-translate-x-1/2` which in v4 compiles to the independent CSS
+ * `translate:` property, so animating `transform` here does NOT compose
+ * with the centering — the chip's anchor stays pixel-locked to its
+ * (left, top) coordinates throughout. This is the critical invariant:
+ * any earlier keyframe that wrote `transform: translate(-50%) scale(x)`
+ * combined with the v4 `translate:` centering and yanked the chip a
+ * full half-width to the left mid-animation (the classic "A→B→A jump"
+ * regression — see git history around 2026-04-24).
+ *
+ * `transform-origin: center` on the element (see poi-pin.tsx) pins the
+ * scale around the chip's visual center so it breathes in place
+ * instead of scaling from a corner.
+ */
+@keyframes livo-poi-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.28);
+  }
+  75% {
+    transform: scale(0.94);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+
+/*
+ * Guard against a brief horizontal scrollbar while the chat modal
+ * slides in from the right. Vertical scrolling is unaffected.
+ */
+html,
+body {
+  overflow-x: clip;
+}

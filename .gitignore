@@ -1,0 +1,25 @@
+node_modules
+.next
+out
+.env*.local
+.DS_Store
+.config
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+.reference/
+
+# 发布产物的本地 checkout：各自是独立仓（见 scripts/deploy-pages.sh），
+# 不能被这个仓当 gitlink 收进来。
+livo-pr-demo/
+livo-world-demo/
+html-demo/
+html-demo*.zip
+
+# 静态导出发布时临时挪走源码的中转目录。
+.deploy-stash/
+
+# 暂时用不上但先别丢的重资源（旧校园 demo 的视频/插画）。
+.attic/
+
+.tmp-xlsx/

@@ -1,0 +1,63 @@
+---
+description: Figma MCP — asset handling and Figma-to-code workflow rules for this workspace
+globs:
+alwaysApply: true
+---
+
+# Figma MCP integration rules
+
+These rules govern every Figma-driven change in this workspace. They combine Figma's
+official Cursor asset-handling rule with the recommended implementation flow.
+
+## Required flow (do not skip)
+
+1. Run `get_design_context` first to fetch the structured representation for the
+   exact node(s) referenced by the Figma URL the user provided.
+2. If the response is too large or truncated, run `get_metadata` to get the
+   high-level node map, then re-fetch only the required node(s) with
+   `get_design_context`.
+3. Run `get_screenshot` for a visual reference of the node/variant being
+   implemented. Keep it on unless explicitly managing token budget.
+4. Before reusing components, call `get_code_connect_map` to honor any existing
+   Figma-node ↔ code-component mappings.
+5. Only after design context + screenshot + code-connect map are gathered,
+   download any required assets and start implementation.
+6. Validate the final UI against the Figma screenshot for both look and
+   behavior before marking the task complete.
+
+## Asset handling (official Figma rule)
+
+- The Figma MCP server provides an assets endpoint that serves images and SVGs.
+- IMPORTANT: If the Figma MCP server returns a `localhost` source for an image
+  or SVG, use that source directly.
+- IMPORTANT: DO NOT import or add new icon packages — every asset should already
+  be in the Figma payload.
+- IMPORTANT: DO NOT use or create placeholders if a `localhost` source is
+  provided.
+
+## Implementation rules
+
+- Treat `get_design_context` output (React + Tailwind by default) as a
+  representation of design intent, not as final code style. Translate it into
+  the project's actual framework, component conventions, and tokens.
+- Reuse existing components (buttons, inputs, typography, icon wrappers, etc.)
+  instead of duplicating functionality. Prefer Code Connect mappings.
+- Use the project's color, typography, and spacing tokens consistently. Avoid
+  hardcoded values when a `get_variable_defs` token exists.
+- Respect existing routing, state management, and data-fetch patterns already
+  adopted in the repo.
+- Strive for 1:1 visual parity with the Figma design. When conflicts arise,
+  prefer design-system tokens and adjust spacing or sizes minimally.
+
+## Writing back to Figma (`use_figma`)
+
+- ALWAYS load the `figma-use` skill before invoking `use_figma`. Skipping it
+  causes hard-to-debug failures.
+- Before creating anything new in Figma, call `search_design_system` to find
+  reusable components, variables, and styles.
+
+## Breaking down large work
+
+- For large screens, generate code per logical chunk (Header, Sidebar, Card,
+  etc.) rather than the whole frame at once. This avoids context overflows and
+  produces more reliable output.
