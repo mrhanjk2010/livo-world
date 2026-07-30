@@ -40,7 +40,6 @@ import {
 export function WorldFeedCard({
   onOpenDestiny,
   onOpenRespond,
-  onOpenEchoes,
   cooldownRemainingSec,
   voiceItem,
   clock,
@@ -49,8 +48,6 @@ export function WorldFeedCard({
   onOpenDestiny: () => void;
   /** 点「回应这一刻」：打开全屏输入遮罩。 */
   onOpenRespond: () => void;
-  /** 点表头那枚呼吸指示：打开全屏世界回响星图。 */
-  onOpenEchoes: () => void;
   /** 冷却剩余秒数；>0 时入口禁用并显示酝酿文案。 */
   cooldownRemainingSec: number;
   /** 父级下发的用户回应；按 id 去重后写入动态。 */
@@ -187,10 +184,7 @@ export function WorldFeedCard({
             <p className="min-w-0 flex-1 text-[13px] font-medium leading-[1.5] text-[#9f9f9f]">
               世界动态 · {clockLabel.time} {clockLabel.weather}
             </p>
-            <WorldLiveIndicator
-              onClick={onOpenEchoes}
-              label="世界回响：看这些动态汇聚成了什么"
-            />
+            <WorldLiveIndicator />
           </div>
 
           {/*

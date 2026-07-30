@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CastPanel } from "@/components/tilia/cast-panel";
 import { DestinyEnterSheet } from "@/components/tilia/destiny-enter-sheet";
 import { DestinySheet } from "@/components/tilia/destiny-sheet";
 import { EchoFieldScreen } from "@/components/tilia/echo-field-screen";
@@ -72,7 +71,6 @@ export function TiliaMapScreen() {
   const [focusRoom, setFocusRoom] = useState<Room | null>(null);
   const [focusId, setFocusId] = useState(0);
 
-  const [castOpen, setCastOpen] = useState(false);
   const [destinyOpen, setDestinyOpen] = useState(false);
   const [enterDestiny, setEnterDestiny] = useState<DestinyMarkerDef | null>(
     null,
@@ -358,12 +356,11 @@ export function TiliaMapScreen() {
         spawnedDestinies={spawnedDestinies}
       />
 
-      <TiliaTopBar onOpenProfile={() => setCastOpen(true)} />
+      <TiliaTopBar onOpenEchoes={() => setEchoFieldOpen(true)} />
 
       <WorldFeedCard
         onOpenDestiny={() => setDestinyOpen(true)}
         onOpenRespond={() => setRespondOpen(true)}
-        onOpenEchoes={() => setEchoFieldOpen(true)}
         cooldownRemainingSec={cooldownRemainingSec}
         voiceItem={voiceItem}
         clock={worldClock}
@@ -388,15 +385,13 @@ export function TiliaMapScreen() {
 
       <EchoSheet story={activeEcho} onClose={() => setActiveEcho(null)} />
 
-      {/* 历史回响的全屏星图，入口是动态卡表头那枚呼吸指示 */}
+      {/* 历史回响的全屏星图，入口是顶栏右上角那枚按钮 */}
       <EchoFieldScreen
         open={echoFieldOpen}
         stories={ECHO_FIELD_STORIES}
         loose={LOOSE_EVENTS}
         onClose={() => setEchoFieldOpen(false)}
       />
-
-      <CastPanel open={castOpen} onClose={() => setCastOpen(false)} />
 
       <WorldSwitcherSheet
         open={switcherOpen}

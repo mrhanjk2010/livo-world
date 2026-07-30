@@ -10,14 +10,14 @@ import { StatusBar } from "@/components/mobile/status-bar";
  *   1. 自上而下的黑色渐变（0.5 → 0.25 → 透明），保证状态栏白字可读；
  *   2. 「模糊层-顶部」—— 一层带 alpha 遮罩的背景模糊，只在最上面
  *      一截生效，让顶栏下方的底图糊掉一点而不是整块压黑；
- *   3. 状态栏 + Top Navigation（左 logo，右人物入口）。
+ *   3. 状态栏 + Top Navigation（左 logo，右回响星图入口）。
  *
  * 遮罩用 CSS 渐变而不是 `blur-mask-top.svg`：那张 mask 本身就是一条
  * 竖直线性渐变（86.4% 处透明 → 94.1% 处不透明，再整体垂直翻转），
  * 用 `mask-image: linear-gradient(...)` 表达完全等价，还省掉一次
  * 请求和静态导出时的路径重写。
  */
-export function TiliaTopBar({ onOpenProfile }: { onOpenProfile: () => void }) {
+export function TiliaTopBar({ onOpenEchoes }: { onOpenEchoes: () => void }) {
   return (
     <div
       className="pointer-events-none absolute inset-x-0 top-0 z-40 flex flex-col items-center pb-[56px]"
@@ -57,18 +57,19 @@ export function TiliaTopBar({ onOpenProfile }: { onOpenProfile: () => void }) {
           />
         </div>
 
+        {/* 回响星图入口（设计稿 `3471:13751`）：28 圆底玻璃 + 20 图标。 */}
         <button
           type="button"
-          onClick={onOpenProfile}
-          aria-label="人物与故事核心"
-          className="pointer-events-auto flex size-[29px] shrink-0 items-center justify-center transition-transform duration-200 active:scale-90"
+          onClick={onOpenEchoes}
+          aria-label="世界回响：看这些动态汇聚成了什么"
+          className="pointer-events-auto flex size-[28px] shrink-0 items-center justify-center rounded-full bg-black/20 backdrop-blur-[23.2px] transition-[transform,filter] duration-200 hover:brightness-125 active:scale-90 active:brightness-150"
         >
           <Image
-            src="/figma/tilia/nav-profile.svg"
+            src="/figma/tilia/nav-echo-field.svg"
             alt=""
-            width={29}
-            height={29}
-            className="size-full select-none"
+            width={20}
+            height={20}
+            className="size-[20px] max-w-none select-none"
             draggable={false}
           />
         </button>
