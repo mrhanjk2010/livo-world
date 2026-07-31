@@ -112,7 +112,14 @@ const SAFE_SIDE = 12;
  * 60%，跟那一档拉开距离 —— 通览时先看见的就是结果，和还能动的那些。
  */
 const DIM_ORB = 0.6;
-const DIM_NODE = 0.15;
+/**
+ * 已经汇进某枚回响的事件/时机，静息态压到这一档。
+ *
+ * 从 15% 抬到 30% 是跟着「静息态只画光点」一起改的：15% 那档是为一枚 32px 的头
+ * 像定的 —— 头像那么大一块，压到一成半刚好读作「在那儿但别看它」。换成一枚四五
+ * 个屏幕像素的光点之后，同一档就直接没了，整张网变成一堆断在半空的线。
+ */
+const DIM_NODE = 0.3;
 /**
  * 有选中时，链条之外的回响、以及别的散件事件都退到这一档 —— 不然链条挑不
  * 出来。散件跟着退是有意的：它们平时和光球一样亮，正因为如此，不退就会在
@@ -208,6 +215,24 @@ const SPAWN_RING = 120;
 const DESTINY_CORE = Math.round(44 * ZOOM);
 const DESTINY_WING = Math.round(30 * ZOOM);
 const DESTINY_PILL_H = Math.round(22 * ZOOM);
+
+/**
+ * 静息态的光点直径（画布 px）。
+ *
+ * 整屏一百多个点，谁都摆出自己那张脸的时候，看到的是一百多张脸，看不到那张网。
+ * 所以没被挑中的一律收成一枚光点：颜色留着（绿=事件与时机、暖橙=回响、蓝/粉=
+ * 命运），形状全省掉。挑中哪一簇，那一簇才现出头像、光球、蝶形 —— 「看清」是选
+ * 中换来的，不是默认给的。
+ *
+ * 四档大小是一层轻的次序：结果（回响、命运）比促成它的那些（事件、时机）大一
+ * 圈，事件比时机大一点点。差得都很小 —— 这一屏要读的是「有多少点、怎么牵着」，
+ * 不是谁更重要。
+ */
+const ECHO_DOT = Math.round(13 * ZOOM);
+const DESTINY_DOT = Math.round(12 * ZOOM);
+/** 这两个要乘节点自己的景深倍率 `node.scale`，所以不预乘 ZOOM。 */
+const NODE_DOT = 9;
+const MOMENT_DOT = 7;
 
 type Pan = { x: number; y: number };
 type Point = { x: number; y: number };
@@ -1179,6 +1204,11 @@ export function EchoFieldScreen({
                 key={orb.story.id}
                 orb={orb}
                 selected={orb.story.id === selectedId}
+                /*
+                 * 整条链一起现形，不只是被点的那一枚：这一刻要看的是「它由什么
+                 * 汇聚而成」，那几枚上游本来就是答案的一部分。
+                 */
+                revealed={chain.depth.has(orb.story.id)}
                 opacity={glowOf(orb.story.id)}
                 hit={hitScale}
                 spawn={spawnFor(orb.live, orb)}
@@ -1193,6 +1223,7 @@ export function EchoFieldScreen({
                 key={d.seed.id}
                 destiny={d}
                 selected={d.seed.id === selectedId}
+                revealed={chain.depth.has(d.seed.id)}
                 opacity={glowOf(d.seed.id)}
                 labels={labels}
                 hit={hitScale}
@@ -1944,9 +1975,51 @@ function useArrival(spawn?: Spawn): ArrivalStyle {
   return { at: null, opacity: null, settled: true };
 }
 
+/**
+ * 静息态里的一枚光点 —— 回响、命运、事件、时机在没被挑中时都是这个样子，只差
+ * 颜色和大小（见 `ECHO_DOT` 一段）。
+ *
+ * 实心圆加两层 box-shadow 就够：外面那层散得开，是「亮」；里面那层紧贴着圆，是
+ * 「实」。没用 SVG 也没用滤镜 —— 满图一百多枚，这两样都要按倍率补偿，而 box-
+ * shadow 只在铺一次的时候画，之后一帧都不重算。
+ *
+ * `on` 是渐显渐隐而不是拆掉重建：选中是一次「现形」，光点淡出、原形淡入，两边
+ * 用同一段时长错着走，读起来才是同一个东西换了个说法。
+ */
+function FieldDot({
+  core,
+  color,
+  on,
+  cx,
+}: {
+  core: number;
+  color: string;
+  on: boolean;
+  /** 圆心在父容器里的横向位置；不给就落在正中（连线接的也是这个点）。 */
+  cx?: number;
+}) {
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute top-1/2 block rounded-full transition-opacity duration-500 ease-out"
+      style={{
+        left: cx ?? "50%",
+        width: core,
+        height: core,
+        marginLeft: -core / 2,
+        marginTop: -core / 2,
+        background: color,
+        boxShadow: `0 0 ${core * 1.8}px ${color}80, 0 0 ${core * 0.7}px ${color}cc`,
+        opacity: on ? 1 : 0,
+      }}
+    />
+  );
+}
+
 function FieldOrb({
   orb,
   selected,
+  revealed,
   opacity,
   hit,
   spawn,
@@ -1954,6 +2027,8 @@ function FieldOrb({
 }: {
   orb: EchoFieldOrb;
   selected: boolean;
+  /** 在被挑亮的那条链上 —— 现出光球本体，其余时候只是一枚暖橙光点。 */
+  revealed: boolean;
   /** 由代际算好：选中最亮，上游依次淡，链外最暗。 */
   opacity: number;
   /** 命中区的反向补偿倍数（缩小时放大，视觉不变）。 */
@@ -1986,17 +2061,21 @@ function FieldOrb({
         pointerEvents: arrival.settled ? undefined : "none",
       }}
     >
+      {/* 没挑中它的时候，它只是一枚暖橙的点 */}
+      <FieldDot core={ECHO_DOT} color={ACCENT} on={!revealed} />
+
       {/*
         命中区比球大一圈，球本身仍按设计稿的 44 画，再整体缩放到 ZOOM ——
         `EchoOrb` 内部那些光晕偏移都是写死的 px（地图标记也用同一份），放在
         缩放盒子里等比放大，比给它加一路 size 参数干净。
       */}
       <span
-        className="absolute left-1/2 top-1/2 block"
+        className="absolute left-1/2 top-1/2 block transition-opacity duration-500 ease-out"
         style={{
           width: ECHO_ORB_CORE,
           height: ECHO_ORB_CORE,
           transform: `translate(-50%, -50%) scale(${ZOOM})`,
+          opacity: revealed ? 1 : 0,
         }}
       >
         {/* 只有选中那颗在喘：上游也喘的话，就分不出谁是当下这个果了 */}
@@ -2023,6 +2102,7 @@ function FieldOrb({
 function FieldDestiny({
   destiny,
   selected,
+  revealed,
   opacity,
   labels,
   hit,
@@ -2030,6 +2110,8 @@ function FieldDestiny({
 }: {
   destiny: EchoFieldDestiny;
   selected: boolean;
+  /** 在被挑亮的那条链上 —— 现出蝶形，其余时候只是一枚同色的光点。 */
+  revealed: boolean;
   opacity: number;
   /** 这个尺度上标题读得出来吗 —— 读不出来就别画（见 `LABEL_SCALE`）。 */
   labels: boolean;
@@ -2069,23 +2151,38 @@ function FieldDestiny({
         />
       ) : null}
 
-      {/* 冷光垫在最底下，选中时铺开一倍 —— 命运是「牵着的」，不是在喘 */}
+      {/* 没挑中它的时候，它只是一枚同色的点 */}
+      <FieldDot core={DESTINY_DOT} color={accent} on={!revealed} />
+
+      {/*
+        冷光垫在最底下，选中时铺开一倍 —— 命运是「牵着的」，不是在喘。
+        没现形时收到光点那个量级：这一圈是给蝶形垫的，蝶形没出来它就该跟着收。
+      */}
       <span
         className="absolute left-1/2 top-1/2 block -translate-x-1/2 -translate-y-1/2 rounded-full transition-[width,height,opacity] duration-500 ease-out"
         style={{
-          width: selected ? DESTINY_CORE * 2.4 : DESTINY_CORE * 1.5,
-          height: selected ? DESTINY_CORE * 2.4 : DESTINY_CORE * 1.5,
+          width: selected
+            ? DESTINY_CORE * 2.4
+            : revealed
+              ? DESTINY_CORE * 1.5
+              : DESTINY_DOT * 2.2,
+          height: selected
+            ? DESTINY_CORE * 2.4
+            : revealed
+              ? DESTINY_CORE * 1.5
+              : DESTINY_DOT * 2.2,
           background: `radial-gradient(circle, ${accent}59 0%, ${accent}00 70%)`,
           opacity: selected ? 1 : 0.7,
         }}
       />
 
       <span
-        className="absolute inset-0 flex items-center justify-center rounded-full border transition-colors duration-500"
+        className="absolute inset-0 flex items-center justify-center rounded-full border transition-[color,background-color,border-color,box-shadow,opacity] duration-500"
         style={{
           borderColor: `${accent}${selected ? "99" : "4d"}`,
           background: `${accent}${selected ? "26" : "14"}`,
           boxShadow: selected ? `0 0 14px ${accent}66` : undefined,
+          opacity: revealed ? 1 : 0,
         }}
       >
         <Image
@@ -2108,11 +2205,14 @@ function FieldDestiny({
         回响光球，而这一屏两者是并列的。选中那枚才回到接近地图的浓度。
       */}
       <span
-        className={`absolute left-1/2 flex w-max -translate-x-1/2 items-center gap-[5px] rounded-full border py-[4px] pl-[6px] pr-[10px] transition-[color,background,border-color,opacity] duration-500 ${
+        className={`absolute left-1/2 flex w-max -translate-x-1/2 items-center gap-[5px] rounded-full border py-[4px] pl-[6px] pr-[10px] transition-[color,background,border-color,opacity,top] duration-500 ${
           labels ? "" : "pointer-events-none"
         }`}
         style={{
-          top: DESTINY_CORE + 7,
+          // 跟着上面那枚图标走：现形时挂在蝶形下面，收成光点时也跟着收上去。
+          top: revealed
+            ? DESTINY_CORE + 7
+            : (DESTINY_CORE + DESTINY_DOT) / 2 + 8,
           borderColor: `${accent}${selected ? "80" : "33"}`,
           background: selected
             ? `linear-gradient(90deg, ${accent}cc, ${accent}80)`
@@ -2120,7 +2220,21 @@ function FieldDestiny({
           opacity: labels ? 1 : 0,
         }}
       >
-        <SpeakerStack speakers={seed.speakers} size={17} overlap={6} />
+        {/*
+          胶囊里那几张脸也跟着现形收放：静息态整屏不出人脸，这是「收成光点」这条
+          规矩里的一处，漏了它，命运就成了唯一还挂着头像的东西。宽度从 0 撑开，
+          标题于是往右让 —— 和节点那边头像挤进来是同一个动作。
+        */}
+        <span
+          className="relative block shrink-0 overflow-hidden transition-[width,opacity] duration-500 ease-out"
+          style={{
+            width: revealed ? 17 + (seed.speakers.length - 1) * 11 : 0,
+            height: 17,
+            opacity: revealed ? 1 : 0,
+          }}
+        >
+          <SpeakerStack speakers={seed.speakers} size={17} overlap={6} />
+        </span>
         <span className="whitespace-nowrap text-[13px] font-medium leading-none text-white/90">
           {seed.title}
         </span>
@@ -2220,6 +2334,7 @@ function FieldNode({
           className="relative block shrink-0"
           style={{ width: 24 * s, height: 24 * s }}
         >
+          <FieldDot core={MOMENT_DOT * s} color={LINE_ACCENT} on={!active} />
           <Image
             src="/figma/tilia/echo/moment-dot.svg"
             alt=""
@@ -2232,27 +2347,47 @@ function FieldNode({
              * 留在原值，而这张 SVG 是 preserveAspectRatio="none" ——
              * 结果那枚圆点被拉成竖椭圆。
              */
-            className="absolute max-w-none"
+            className="absolute max-w-none transition-opacity duration-500 ease-out"
             style={{
               width: 50 * s,
               height: 50 * s,
               left: -13 * s,
               top: -13 * s,
+              opacity: active ? 1 : 0,
             }}
           />
         </span>
       ) : (
+        /*
+         * 头像那一格。静息态只留一枚绿点，挑中这一簇才现出头像组。
+         *
+         * 盒子宽度跟着现形一起变（一个头像那么宽 → 整组那么宽），而不是一直按整
+         * 组预留：三个人的事件预留出来是一大片空，光点孤零零挂在左端，右边的字
+         * 像掉在了后面。宽度进 transition，现形时字往右让开那一下和头像淡入是同
+         * 一段时间，读起来是「头像挤进来了」。
+         *
+         * 光点的圆心固定落在第一个头像的圆心上（= `anchor`，也就是线接的那个
+         * 点）—— 无论现不现形，这个点都不动，线才不会跟着抖。
+         */
         <span
-          className="shrink-0"
+          className="relative block shrink-0 transition-[width] duration-500 ease-out"
           style={{
+            width: active ? stackWidth(node.speakers.length, s) : 32 * s,
+            height: 32 * s,
             filter: active ? `drop-shadow(0 0 ${5 * s}px ${ACCENT})` : undefined,
           }}
         >
-          <SpeakerStack
-            speakers={node.speakers}
-            size={32 * s}
-            overlap={8 * s}
-          />
+          <FieldDot core={NODE_DOT * s} color={LINE_ACCENT} on={!active} cx={anchor} />
+          <span
+            className="absolute left-0 top-1/2 block -translate-y-1/2 transition-opacity duration-500 ease-out"
+            style={{ opacity: active ? 1 : 0 }}
+          >
+            <SpeakerStack
+              speakers={node.speakers}
+              size={32 * s}
+              overlap={8 * s}
+            />
+          </span>
         </span>
       )}
 
@@ -2323,6 +2458,11 @@ function FieldNode({
       {body}
     </button>
   );
+}
+
+/** 头像组摊开有多宽：一个头像，加上后面每个各露出 size - overlap 那一截。 */
+function stackWidth(count: number, s: number): number {
+  return 32 * s + Math.max(0, count - 1) * 24 * s;
 }
 
 /** 酝酿进度的数字写法。星图上只留这一个数，条子留给半层。 */
