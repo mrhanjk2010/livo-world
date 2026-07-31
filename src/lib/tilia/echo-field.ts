@@ -28,6 +28,7 @@ import type {
   LooseNudge,
 } from "@/lib/tilia/echo-archive";
 import type { DestinyChainSeed } from "@/lib/tilia/destiny-archive";
+import type { LiveArrival } from "@/lib/tilia/echo-live";
 import type { EchoNodeSeed } from "@/lib/tilia/echo-story";
 import type { FeedSpeaker } from "@/lib/tilia/world-feed";
 
@@ -161,12 +162,16 @@ export type EchoFieldNode = {
   /** 只有还没接上线的事件有：酝酿进度 0–1，以及能推它一把的做法。 */
   brewing?: number;
   nudges?: readonly LooseNudge[];
+  /** 陆续到场的那一批：第几次到场之前先不显示（见 `LIVE_ARRIVALS`）。 */
+  live?: number;
 };
 
 export type EchoFieldOrb = {
   story: EchoFieldEntry;
   x: number;
   y: number;
+  /** 同 `EchoFieldNode.live`：这枚回响是看着它冒出来的。 */
+  live?: number;
 };
 
 export type EchoFieldDestiny = {
@@ -208,13 +213,39 @@ export type LooseEvent = LooseEventSeed;
  *
  * `destinies` 和回响交替占同一套格子，每枚也带自己的小卡（促成它的事件与时
  * 机）。它们和回响共享一套小卡渲染，只是归属指向命运而不是回响。
+ *
+ * `live` 是打开之后才陆续到场的那一批（见 `echo-live.ts`）。它们和常驻的一起
+ * 参与排布、一起避位，只是每个都带上「属于第几次到场」的编号 —— 位置在这里就
+ * 定死了，运行时只决定显不显示。反过来做（到场时再找位置）会把已经摆好的图挤
+ * 动，那比不动更假。
  */
 export function buildEchoField(
   stories: readonly EchoFieldEntry[],
   loose: readonly LooseEvent[] = [],
   destinies: readonly DestinyChainSeed[] = [],
+  live: readonly LiveArrival[] = [],
 ): EchoField {
-  const { rows, heads } = layoutHeads(stories, destinies);
+  /*
+   * 把到场的那批混进常驻的两个列表里，同时记下谁是第几次到场：回响按 id 记，
+   * 散件事件按它在合并后列表里的下标记（小卡 id 就是按这个下标拼的）。
+   */
+  const liveOrbSlot = new Map<string, number>();
+  const liveLooseSlot = new Map<number, number>();
+  const liveStories: EchoFieldEntry[] = [];
+  const liveLoose: LooseEvent[] = [];
+  live.forEach((arrival, slot) => {
+    if (arrival.kind === "echo") {
+      liveOrbSlot.set(arrival.echo.id, slot);
+      liveStories.push(arrival.echo);
+    } else {
+      liveLooseSlot.set(loose.length + liveLoose.length, slot);
+      liveLoose.push(arrival.event);
+    }
+  });
+  const allStories = liveStories.length ? [...stories, ...liveStories] : stories;
+  const allLoose = liveLoose.length ? [...loose, ...liveLoose] : loose;
+
+  const { rows, heads } = layoutHeads(allStories, destinies);
   const width = COLS * CELL_W;
   /* 一列里的枚数不一定填满 `rows`，短的那列把间距摊开占满同样的高度。 */
   const span = rows * CELL_H;
@@ -254,7 +285,8 @@ export function buildEchoField(
   relaxHeads(placedHeads, clampX, clampY);
 
   for (const { ref, x, y } of placedHeads) {
-    if (ref.kind === "echo") orbs.push({ story: ref.story, x, y });
+    if (ref.kind === "echo")
+      orbs.push({ story: ref.story, x, y, live: liveOrbSlot.get(ref.story.id) });
     else destinyPoints.push({ seed: ref.seed, x, y });
   }
 
@@ -281,7 +313,7 @@ export function buildEchoField(
    * 枚命运的标题胶囊，两格找不开的情形多了几处；四格约 170px，还在「同一
    * 簇」读得出来的范围内。
    */
-  orbs.forEach(({ story, x: ox, y: oy }, i) => {
+  orbs.forEach(({ story, x: ox, y: oy, live: liveSlot }, i) => {
     const orb = { x: ox, y: oy };
     const template = NODE_TEMPLATES[i % NODE_TEMPLATES.length];
     story.nodes.slice(0, template.length).forEach((seed, ni) => {
@@ -290,6 +322,8 @@ export function buildEchoField(
         {
           id: `${story.id}-n${ni}`,
           ownerId: story.id,
+          // 促成它的那几张跟着这枚回响一起到场：果和因不该分两次出现。
+          live: liveSlot,
           kind: seed.kind,
           speakers: seed.kind === "event" ? seed.speakers : [],
           text: seed.text,
@@ -333,7 +367,7 @@ export function buildEchoField(
    * 任何一枚回响或命运），挪远一点不损失任何意思，谁该让谁很清楚。
    */
   const looseCols = COLS + 1;
-  const looseRows = Math.max(1, Math.ceil(loose.length / looseCols));
+  const looseRows = Math.max(1, Math.ceil(allLoose.length / looseCols));
   const looseScales: readonly NodeScale[] = [
     SCALE_MID,
     SCALE_FAR,
@@ -343,7 +377,7 @@ export function buildEchoField(
     SCALE_FAR,
   ];
 
-  loose.forEach((seed, i) => {
+  allLoose.forEach((seed, i) => {
     const key = `loose-${i}-${seed.text}`;
     const col = i % looseCols;
     const row = Math.floor(i / looseCols);
@@ -356,6 +390,7 @@ export function buildEchoField(
         text: seed.text,
         brewing: seed.brewing,
         nudges: seed.nudges,
+        live: liveLooseSlot.get(i),
         x: clampX(
           (col + 0.5) * (width / looseCols) + jitter(key, 3, 90 * ZOOM),
         ),

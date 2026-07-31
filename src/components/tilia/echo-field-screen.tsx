@@ -20,6 +20,16 @@ import { WorldRuntimeLog } from "@/components/tilia/world-runtime-log";
 import type { EchoFieldEntry } from "@/lib/tilia/echo-archive";
 import type { DestinyChainSeed } from "@/lib/tilia/destiny-archive";
 import {
+  ARRIVE_BOOST_MAX,
+  ARRIVE_FLY_MS,
+  ARRIVE_HOLD_MS,
+  ARRIVE_LIT_MS,
+  ARRIVE_MAX_MS,
+  ARRIVE_MIN_MS,
+  ARRIVE_SPAWN_Y,
+  LIVE_ARRIVALS,
+} from "@/lib/tilia/echo-live";
+import {
   buildEchoField,
   ECHO_ORB_RADIUS,
   estimateNodeWidth,
@@ -186,6 +196,9 @@ const ZOOM = FIELD_ZOOM;
 /** 光球的命中区。视觉核心 44、光晕铺到 82，人是照着光晕点的。 */
 const ORB_HIT = Math.round(64 * ZOOM);
 
+/** 生成波纹荡到多大（屏幕 px；画在画布里，所以要按倍率折算回去）。 */
+const SPAWN_RING = 120;
+
 /**
  * 命运那枚标记的视觉尺寸：蝶形核心 + 底下那枚标题胶囊。
  *
@@ -222,6 +235,28 @@ type ChainPoint = {
   isDestiny: boolean;
   causeIds: readonly string[];
 };
+
+/**
+ * 一次到场：第几批、当时在画布哪儿生成、生成时放大多少、以及这一批的主角。
+ *
+ * `head` 是这一批的中心 —— 一枚回响到场时连它的那几张因一起来，中心就是那颗
+ * 光球，几张卡按各自和它的相对位置摆开（同样放大），所以出场时看到的是这一簇
+ * 本来的形状，只是被搬到了屏幕正中。散件事件只有一张，中心就是它自己。
+ */
+type Arrival = {
+  slot: number;
+  from: Point;
+  boost: number;
+  head: Point;
+};
+
+/**
+ * 一枚东西「出场时先在哪儿」—— 相对它自己位置的偏移，加上出场那一下的放大。
+ *
+ * 存偏移而不是绝对坐标：元素本来就绝对定位在自己的位置上，出场只是先把它推到
+ * 别处，再把这个推力收回来。收回来那一记就是飞行动画（见 `useArrival`）。
+ */
+type Spawn = { dx: number; dy: number; boost: number };
 
 /**
  * 全屏世界背面星图 —— 设计稿 `3406:9892`（默认）/ `3407:10459`（选中）。
@@ -292,10 +327,81 @@ export function EchoFieldScreen({
   /** 点开的散件事件。和选中互斥 —— 底下只有一张半层。 */
   const [pickedId, setPickedId] = useState<string | null>(null);
 
-  const field = useMemo(
-    () => buildEchoField(stories, loose, destinies),
+  /**
+   * 已经到场的那几批（`LIVE_ARRIVALS` 的下标，随机顺序），各自记着当时的生成
+   * 点 —— 那是它出场的地方（取景框正中），飞过去的目的地才是它在图上的位置。
+   *
+   * 生成点得在到场那一刻量下来存住：飞行途中人可能接着拖图，现算就会跳。
+   *
+   * 关掉再打开会清空 —— 每次进来都从常驻那些看起，然后再看它长出来几枚。这
+   * 比记住上次进度好：这一屏想说的是「你在看的时候世界也在动」，不是进度条。
+   */
+  const [arrived, setArrived] = useState<readonly Arrival[]>([]);
+  /** 已经飞到位的那几批：只有落位之后才给它接上连线。 */
+  const [landed, setLanded] = useState<readonly number[]>([]);
+  const landTimers = useRef<number[]>([]);
+
+  const layout = useMemo(
+    () => buildEchoField(stories, loose, destinies, LIVE_ARRIVALS),
     [stories, loose, destinies],
   );
+
+  /**
+   * 眼下这一版星图 —— 常驻的全部，加上已经到场的那几批。
+   *
+   * 画布尺寸和 `contentTop` 一律取自完整版（`layout`）：还没到场的那些也已经
+   * 占好了位置，所以取景框从头到尾不动，新东西只是在既有的空位上亮起来。
+   */
+  const field = useMemo((): EchoField => {
+    if (arrived.length >= LIVE_ARRIVALS.length) return layout;
+    const shown = new Set(arrived.map((a) => a.slot));
+    const here = (live?: number) => live === undefined || shown.has(live);
+    return {
+      ...layout,
+      orbs: layout.orbs.filter((o) => here(o.live)),
+      nodes: layout.nodes.filter((n) => here(n.live)),
+    };
+  }, [layout, arrived]);
+
+  /**
+   * 这一枚出场时该先摆在哪 —— 常驻的那些没有出场，返回 `undefined`。
+   *
+   * 每一批到场存的是画布坐标下的生成点，这里换成相对它自己位置的偏移。
+   */
+  const spawnFor = useCallback(
+    (live: number | undefined, at: Point): Spawn | undefined => {
+      if (live === undefined) return undefined;
+      const a = arrived.find((x) => x.slot === live);
+      if (!a) return undefined;
+      /*
+       * 簇里的每一件按「和中心的相对位置 × 放大倍数」摆开：出场时的这一簇和它
+       * 在图上的样子是同一个形状，只是整体大了一号、搬到了正中。乘上倍数不能
+       * 省，不然元素放大了、间距没放大，几张卡会叠在一起。
+       */
+      return {
+        dx: a.from.x + (at.x - a.head.x) * a.boost - at.x,
+        dy: a.from.y + (at.y - a.head.y) * a.boost - at.y,
+        boost: a.boost,
+      };
+    },
+    [arrived],
+  );
+
+  /** 还在飞的那些东西的 id：这会儿不给它们画线，也点不着。 */
+  const flying = useMemo((): ReadonlySet<string> => {
+    const out = new Set<string>();
+    const air = arrived
+      .filter((a) => !landed.includes(a.slot))
+      .map((a) => a.slot);
+    if (air.length === 0) return out;
+    for (const o of field.orbs) {
+      if (o.live !== undefined && air.includes(o.live)) out.add(o.story.id);
+    }
+    for (const n of field.nodes) {
+      if (n.live !== undefined && air.includes(n.live)) out.add(n.id);
+    }
+    return out;
+  }, [arrived, landed, field.orbs, field.nodes]);
 
   const orbById = useMemo(
     () => new Map(field.orbs.map((o) => [o.story.id, o])),
@@ -393,6 +499,8 @@ export function EchoFieldScreen({
     const out: FlowEdge[] = [];
     for (const n of field.nodes) {
       if (!n.ownerId) continue;
+      // 还在飞的那几张先不连：线画在目的地，人却还在半路，看着像画坏了。
+      if (flying.has(n.id) || flying.has(n.ownerId)) continue;
       const to = pointById.get(n.ownerId);
       if (to) out.push({ id: `rest-${n.id}`, from: n, to, strength: 1 });
     }
@@ -403,12 +511,13 @@ export function EchoFieldScreen({
         const from = pointById.get(c);
         const id = `rest-${c}-${p.id}`;
         if (!from || seen.has(id)) continue;
+        if (flying.has(c) || flying.has(p.id)) continue;
         seen.add(id);
         out.push({ id, from, to: p, strength: 1 });
       }
     }
     return out;
-  }, [field.nodes, pointById]);
+  }, [field.nodes, pointById, flying]);
 
   /**
    * 事件/时机汇进选中那枚，加上链条上一段段的回响/命运。
@@ -554,6 +663,52 @@ export function EchoFieldScreen({
     setScale(MIN_SCALE);
     setPan(homePan(MIN_SCALE));
   }, [open, homePan]);
+
+  /*
+   * 到场计时：每隔 5–10 秒，从还没来的那些里随机挑一枚，在取景框正中生成，一
+   * 拍之后放它飞回自己的位置。
+   *
+   * 依赖里带上 `arrived`，所以每来一枚就重新摇一次间隔 —— 节拍不均匀，才像世
+   * 界自己在动，而不是一个定时器在跑。
+   *
+   * 生成点按「当下的」取景算（读 `panRef` / `scaleRef` 而不是 state）：这一发
+   * 是定时器回调里跑的，state 可能还差一帧。
+   */
+  useEffect(() => {
+    if (!open) return;
+    const rest = LIVE_ARRIVALS.map((_, i) => i).filter(
+      (i) => !arrived.some((a) => a.slot === i),
+    );
+    if (rest.length === 0) return;
+    const wait = ARRIVE_MIN_MS + Math.random() * (ARRIVE_MAX_MS - ARRIVE_MIN_MS);
+    const timer = window.setTimeout(() => {
+      const slot = rest[Math.floor(Math.random() * rest.length)];
+      const s = scaleRef.current;
+      const p = panRef.current;
+      const orb = layout.orbs.find((o) => o.live === slot);
+      const head =
+        orb ?? layout.nodes.find((n) => n.live === slot) ?? { x: 0, y: 0 };
+      setArrived((prev) => [
+        ...prev,
+        {
+          slot,
+          from: {
+            x: (viewport.w / 2 - p.x) / s,
+            y: (viewport.h * ARRIVE_SPAWN_Y - p.y) / s,
+          },
+          boost: clamp(1 / s, 1, ARRIVE_BOOST_MAX),
+          head: { x: head.x, y: head.y },
+        },
+      ]);
+      landTimers.current.push(
+        window.setTimeout(
+          () => setLanded((prev) => [...prev, slot]),
+          ARRIVE_HOLD_MS + ARRIVE_FLY_MS,
+        ),
+      );
+    }, wait);
+    return () => window.clearTimeout(timer);
+  }, [open, arrived, layout, viewport.w, viewport.h]);
 
   useEffect(() => {
     if (!selectedPoint) return;
@@ -858,6 +1013,11 @@ export function EchoFieldScreen({
     if (!open) {
       setSelectedId(null);
       setPickedId(null);
+      // 陆续到场的那批也退回去（见 `arrived`）：下次进来重新看它长。
+      setArrived([]);
+      setLanded([]);
+      for (const t of landTimers.current) window.clearTimeout(t);
+      landTimers.current = [];
     }
   }, [open]);
 
@@ -961,11 +1121,24 @@ export function EchoFieldScreen({
               两层线：底下这层是整张网（一直都在，很淡），上面那层是选中之后
               被挑亮的那一条。有选中时底层再退一档，让那条链挑得出来。
             */}
+            {/* 刚生成那一下的波纹，荡在生成点上（只在还没飞完的那几批上） */}
+            {arrived
+              .filter((a) => !landed.includes(a.slot))
+              .map((a) => (
+                <SpawnPulse key={a.slot} at={a.from} size={SPAWN_RING / scale} />
+              ))}
+
             <RestLines
               edges={restEdges}
               field={field}
               aside={selectedId !== null || pickedId !== null}
               weight={lineWeight}
+            />
+            {/* 网上轮着跑的微光：静息态唯一在动的东西，也是这屏还在转的证据 */}
+            <RestGlints
+              edges={restEdges}
+              weight={lineWeight}
+              aside={selectedId !== null || pickedId !== null}
             />
             <FlowLines edges={flowEdges} field={field} weight={lineWeight} />
 
@@ -985,6 +1158,8 @@ export function EchoFieldScreen({
                    */
                   aside={brewable && (selectedId !== null || pickedId !== null)}
                   labels={labels}
+                  /* 刚冒出来的那一张：先在屏幕中央生成，再飞到这儿来 */
+                  spawn={spawnFor(node.live, node)}
                   onSelect={
                     brewable
                       ? () => {
@@ -1006,6 +1181,7 @@ export function EchoFieldScreen({
                 selected={orb.story.id === selectedId}
                 opacity={glowOf(orb.story.id)}
                 hit={hitScale}
+                spawn={spawnFor(orb.live, orb)}
                 onSelect={() =>
                   pickPoint(orb.story.id === selectedId ? null : orb.story.id)
                 }
@@ -1279,7 +1455,7 @@ function panForBox(
 /* ─────────────────────────── 连线 ─────────────────────────── */
 
 /**
- * 静息态的那张网：图上每一条因果都连着，一根很淡的渐变虚线，没有光晕也不流动。
+ * 静息态的那张网：图上每一条因果都连着，一根很淡的渐变虚线，画完就不再动。
  *
  * 刻意画得比什么都轻 —— 它的作用是让人看出「这些事本来就互相牵着」，而不是
  * 让人去读某一条。一旦有东西被选中，它再退一档（`aside`），把注意力让给被挑
@@ -1292,6 +1468,11 @@ function panForBox(
  *
  * 虚线的段长和间隔都按 `weight` 反向补偿：跟线宽一个道理，缩小时段长不放大就
  * 密成一根实线，虚线也就白虚了。
+ *
+ * 这张网一帧都不能重画：满图一百多条描边虚线，重画一次就要几十毫秒。让虚线漂
+ * 起来（动 `stroke-dashoffset`）实测掉到七帧 —— 连只让十条漂都掉到十三帧，因为
+ * 动一条就得把整层重新光栅化一遍。运转感因此交给 `RestGlints`：光点是独立的合
+ * 成层，只动 transform，一帧都不碰这张网。
  *
  * 和 `FlowLines` 仍分成两个组件：那边一条线三层描边加一道流光，用在七十多条上
  * 会拖垮这一屏；这边一条就是一笔加一个 gradient，静态、不动，画满也还撑得住。
@@ -1352,6 +1533,160 @@ function RestLines({
         ))}
       </g>
     </svg>
+  );
+}
+
+/**
+ * 同时在路上的光点数。够让取景框里随时有三四处在动，又不至于变成一场灯光秀 ——
+ * 画布比这一屏大，任一时刻有小半数的光点跑在框外，所以数目得比「想看见几个」多。
+ */
+const GLINT_COUNT = 18;
+/** 走完一条线的基准用时，实际每颗在这上下浮动（见 `GLINT_SPREAD`）。 */
+const GLINT_TRAVEL_MS = 3600;
+const GLINT_SPREAD = 0.45;
+/** 走完之后歇多久再挑下一条：歇一会儿，动静才有疏密。 */
+const GLINT_REST_MS = 900;
+const GLINT_REST_JITTER_MS = 3600;
+/** 光点直径（屏幕 px，内部按 `weight` 折算成画布 px）。 */
+const GLINT_SIZE = 13;
+/** 弧线的取样段数。曲率很浅，二十段的折线已经看不出棱。 */
+const GLINT_STEPS = 20;
+/** 光点自身的亮度。跟静息线一个道理：有东西被选中时退到几乎看不见。 */
+const GLINT_OPACITY = 0.5;
+const GLINT_OPACITY_ASIDE = 0.12;
+
+/**
+ * 静息态那张网上跑的微光：每次挑十几条线，各放一颗光点，顺着「因 → 果」的方向
+ * 淌过去，到头就熄，歇一会儿再换一条。
+ *
+ * 为什么不是让虚线自己漂 —— 那才是这个需求的第一直觉。实测过：动
+ * `stroke-dashoffset` 会让整张网每帧重新光栅化一次，满图一百来条描边虚线，帧
+ * 间隔从 16ms 掉到 150ms（七帧）；只让十条漂也还是 75ms。一个「氛围」级别的效果
+ * 不配吃掉整屏的流畅度。
+ *
+ * 光点这条路只动 transform 和 opacity，浏览器能纯粹在合成器上做（每颗自己一
+ * 层，`will-change`），那张网一帧都不用重画 —— 实测二十八颗仍然满帧。
+ *
+ * 换来的是「不是每条线同时都在流」，而是每条线轮着被点亮。恰好也更像世界该有
+ * 的样子：不是所有因果都在同一刻起作用，是这儿一处那儿一处地在动。
+ *
+ * 轨迹用 `arcCurve` 现算，和线本身同一条二次贝塞尔，所以光点是贴着线走的，不是
+ * 在旁边飘。动画用 WAAPI 而不是 CSS：每颗的轨迹各不相同，keyframes 得现生成。
+ */
+function RestGlints({
+  edges,
+  weight,
+  aside,
+}: {
+  edges: readonly FlowEdge[];
+  /** 同 `RestLines`：光点大小按倍率反向补偿，缩到哪一档屏幕上都一样大。 */
+  weight: number;
+  aside: boolean;
+}) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  /*
+   * 线的集合会随着新事件到场变（`restEdges` 每次到场都重算），但光点不该跟着
+   * 重来一遍 —— 那会让满屏的光点在同一刻一起跳。所以走 ref：效果只在「有没有线
+   * 可跑」和倍率变化时重建，跑的时候读的始终是最新那份。
+   */
+  const edgesRef = useRef(edges);
+  edgesRef.current = edges;
+  const ready = edges.length > 0;
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !ready) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+
+    const beads = Array.from(host.children) as HTMLElement[];
+    const timers: number[] = [];
+    let alive = true;
+
+    const ride = (bead: HTMLElement) => {
+      if (!alive) return;
+      const pool = edgesRef.current;
+      const edge = pool[Math.floor(Math.random() * pool.length)];
+      if (!edge) return;
+
+      const { cx, cy } = arcCurve(edge.from, edge.to);
+      const path = Array.from({ length: GLINT_STEPS + 1 }, (_, k) => {
+        const t = k / GLINT_STEPS;
+        const u = 1 - t;
+        const x = u * u * edge.from.x + 2 * u * t * cx + t * t * edge.to.x;
+        const y = u * u * edge.from.y + 2 * u * t * cy + t * t * edge.to.y;
+        return {
+          transform: `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -50%)`,
+        };
+      });
+      const duration =
+        GLINT_TRAVEL_MS * (1 + (Math.random() * 2 - 1) * GLINT_SPREAD);
+
+      bead.animate(path, { duration, easing: "linear", fill: "forwards" });
+      /*
+       * 两头都淡进淡出：光点不该在因那头凭空亮起、在果那头一刀切掉。尾段留得
+       * 比头段长，读起来是「淌到了」而不是「跑没了」。
+       */
+      const glow = bead.animate(
+        [
+          { opacity: 0 },
+          { opacity: 1, offset: 0.15 },
+          { opacity: 1, offset: 0.72 },
+          { opacity: 0 },
+        ],
+        { duration },
+      );
+      glow.finished
+        .then(() => {
+          if (!alive) return;
+          timers.push(
+            window.setTimeout(
+              () => ride(bead),
+              GLINT_REST_MS + Math.random() * GLINT_REST_JITTER_MS,
+            ),
+          );
+        })
+        .catch(() => {});
+    };
+
+    // 开场就错开：不然十几颗会齐步从各自的起点出发，一眼看出是同一个发令枪。
+    beads.forEach((bead) => {
+      timers.push(
+        window.setTimeout(
+          () => ride(bead),
+          Math.random() * (GLINT_TRAVEL_MS + GLINT_REST_JITTER_MS),
+        ),
+      );
+    });
+
+    return () => {
+      alive = false;
+      for (const t of timers) window.clearTimeout(t);
+      for (const bead of beads) for (const a of bead.getAnimations()) a.cancel();
+    };
+  }, [ready, weight]);
+
+  const size = GLINT_SIZE * weight;
+
+  return (
+    <div
+      ref={hostRef}
+      aria-hidden
+      className="pointer-events-none absolute left-0 top-0 transition-opacity duration-500 ease-out"
+      style={{ opacity: aside ? GLINT_OPACITY_ASIDE : GLINT_OPACITY }}
+    >
+      {Array.from({ length: GLINT_COUNT }, (_, i) => (
+        <span
+          key={i}
+          className="absolute left-0 top-0 rounded-full opacity-0"
+          style={{
+            width: size,
+            height: size,
+            background: `radial-gradient(circle, ${LINE_ACCENT} 0%, ${LINE_ACCENT}66 38%, transparent 70%)`,
+            willChange: "transform, opacity",
+          }}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -1482,23 +1817,139 @@ function arcPath(
   from: { x: number; y: number },
   to: { x: number; y: number },
 ): string {
+  const { cx, cy } = arcCurve(from, to);
+  return `M ${from.x} ${from.y} Q ${cx.toFixed(2)} ${cy.toFixed(2)} ${to.x} ${to.y}`;
+}
+
+/**
+ * 上面那条弧的控制点。单独抽出来，是为了让 `RestGlints` 的光点能算出和线
+ * 完全同一条曲线上的取样点 —— 光点得贴着线走，差一点就成了在旁边飘。
+ */
+function arcCurve(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+): { cx: number; cy: number } {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const len = Math.hypot(dx, dy) || 1;
   const side = from.x <= to.x ? 1 : -1;
   const bow = 0.16 * len;
-  const cx = (from.x + to.x) / 2 + (-dy / len) * bow * side;
-  const cy = (from.y + to.y) / 2 + (dx / len) * bow * side;
-  return `M ${from.x} ${from.y} Q ${cx.toFixed(2)} ${cy.toFixed(2)} ${to.x} ${to.y}`;
+  return {
+    cx: (from.x + to.x) / 2 + (-dy / len) * bow * side,
+    cy: (from.y + to.y) / 2 + (dx / len) * bow * side,
+  };
 }
 
 /* ─────────────────────────── 光球 / 节点 ─────────────────────────── */
+
+/**
+ * 生成那一下荡出去的波纹。
+ *
+ * 两圈错开着荡，荡完就没了 —— 它标的是「这里刚有东西出来」这个瞬间。尺寸由外
+ * 面按倍率折算好传进来（画布 px），所以缩到哪一档，屏上看到的圈都是一样大。
+ */
+function SpawnPulse({ at, size }: { at: Point; size: number }) {
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute"
+      style={{ left: at.x, top: at.y }}
+    >
+      {[0, 220].map((delay) => (
+        <span
+          key={delay}
+          className="absolute rounded-full"
+          style={{
+            width: size,
+            height: size,
+            border: `${Math.max(1, size / 48)}px solid ${LINE_ACCENT}`,
+            boxShadow: `0 0 ${size / 5}px ${LINE_ACCENT}66`,
+            animation: `livo-spawn-ring ${ARRIVE_LIT_MS + ARRIVE_HOLD_MS}ms ease-out ${delay}ms both`,
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * 出场的三拍：屏幕中央生成 → 亮住一拍 → 飞回自己的位置。
+ *
+ * 只管时序，几何交给调用方拼 —— 因为这几个元素的 transform 是内联算出来的
+ * （`translate(-50%,-50%)` 加选中态缩放），出场的偏移得拼在它前面。也正因如
+ * 此走 transition 而不是 keyframes：keyframes 会在动画期间整条盖掉 transform，
+ * 位置会跳。
+ *
+ * 飞完还要回到默认那套 500ms 过渡（`done`），不然之后每次明暗变化都拖着一秒。
+ */
+type ArrivalStyle = {
+  /** 还没落位时的偏移；已落位是 `null`，位置就是它自己的位置。 */
+  at: Spawn | null;
+  /** 出场那两拍自己说不透明度；落位之后交回常态（`null`）。 */
+  opacity: number | null;
+  transition?: string;
+  /**
+   * 落位了没有。常驻的那些一直是 `true`。
+   *
+   * 管两件事：出场途中点不着（半路截下来选中它，取景会跟它抢着动），以及字要等
+   * 落位才显。
+   */
+  settled: boolean;
+};
+
+function useArrival(spawn?: Spawn): ArrivalStyle {
+  const [phase, setPhase] = useState<"seed" | "lit" | "fly" | "done">(
+    spawn ? "seed" : "done",
+  );
+
+  useEffect(() => {
+    if (phase === "done") return;
+    if (phase === "seed") {
+      // 第一帧先把它按在生成点上（不透明度 0），下一帧才开始亮。
+      let r2 = 0;
+      const r1 = requestAnimationFrame(() => {
+        r2 = requestAnimationFrame(() => setPhase("lit"));
+      });
+      return () => {
+        cancelAnimationFrame(r1);
+        cancelAnimationFrame(r2);
+      };
+    }
+    const t = window.setTimeout(
+      () => setPhase(phase === "lit" ? "fly" : "done"),
+      phase === "lit" ? ARRIVE_HOLD_MS : ARRIVE_FLY_MS,
+    );
+    return () => window.clearTimeout(t);
+  }, [phase]);
+
+  if (phase === "seed" && spawn) {
+    return { at: spawn, opacity: 0, transition: "none", settled: false };
+  }
+  if (phase === "lit" && spawn) {
+    return {
+      at: spawn,
+      opacity: 1,
+      transition: `opacity ${ARRIVE_LIT_MS}ms ease-out`,
+      settled: false,
+    };
+  }
+  if (phase === "fly") {
+    return {
+      at: null,
+      opacity: null,
+      transition: `opacity ${ARRIVE_FLY_MS}ms ease-out, transform ${ARRIVE_FLY_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+      settled: false,
+    };
+  }
+  return { at: null, opacity: null, settled: true };
+}
 
 function FieldOrb({
   orb,
   selected,
   opacity,
   hit,
+  spawn,
   onSelect,
 }: {
   orb: EchoFieldOrb;
@@ -1507,8 +1958,12 @@ function FieldOrb({
   opacity: number;
   /** 命中区的反向补偿倍数（缩小时放大，视觉不变）。 */
   hit: number;
+  /** 是打开之后才冒出来的那一枚：先在屏幕中央生成，再飞到这儿来。 */
+  spawn?: Spawn;
   onSelect: () => void;
 }) {
+  const arrival = useArrival(spawn);
+
   return (
     <button
       type="button"
@@ -1521,8 +1976,14 @@ function FieldOrb({
         top: orb.y,
         width: ORB_HIT * hit,
         height: ORB_HIT * hit,
-        opacity,
-        transform: `translate(-50%, -50%) scale(${selected ? 1.08 : 1})`,
+        opacity: arrival.opacity ?? opacity,
+        transform: `${
+          arrival.at ? `translate(${arrival.at.dx}px, ${arrival.at.dy}px) ` : ""
+        }translate(-50%, -50%) scale(${
+          arrival.at ? arrival.at.boost : selected ? 1.08 : 1
+        })`,
+        transition: arrival.transition,
+        pointerEvents: arrival.settled ? undefined : "none",
       }}
     >
       {/*
@@ -1686,6 +2147,7 @@ function FieldNode({
   picked,
   aside,
   labels,
+  spawn,
   onSelect,
 }: {
   node: EchoFieldNode;
@@ -1695,6 +2157,8 @@ function FieldNode({
   aside: boolean;
   /** 缩到全局那一档时字读不出来，只留头像/光点（见 `LABEL_SCALE`）。 */
   labels: boolean;
+  /** 是打开之后才冒出来的那一张（见 `useArrival`）。 */
+  spawn?: Spawn;
   /** 只有还在酝酿的散件事件给，给了就整张卡可点。 */
   onSelect?: () => void;
 }) {
@@ -1702,25 +2166,50 @@ function FieldNode({
   const isMoment = node.kind === "moment";
   const anchor = (isMoment ? 12 : 16) * s;
   const active = lit || picked;
+  const arrival = useArrival(spawn);
+  /*
+   * 出场时只出头像/光点，字等落位再显。
+   *
+   * 一张卡的字比它的头像宽好几倍，在屏幕正中亮出一整句，读到的是「一条通知」，
+   * 而这一下要说的是「有个东西出来了」。字留到落位之后，那时它已经在因果网里有
+   * 位置了，读起来才是「这是什么」。字本来就带一记 300ms 淡入（`labels`），落
+   * 位后接着用同一记。
+   */
+  const showText = labels && arrival.settled;
+  /*
+   * 出场那一下的放大是绕盒子中心做的，而这张卡的坐标是它左端那个点（头像/光点
+   * 的圆心，连线接在那儿）—— 放大会把这个点朝盒子中心拽走十几像素。把这段拽走
+   * 的距离补回去，锚点才真的落在生成点上，簇里几张卡的相对位置也才对得上。
+   */
+  const spawnDx = arrival.at
+    ? arrival.at.dx +
+      (estimateNodeWidth(node) / 2 - anchor) * (arrival.at.boost - 1)
+    : 0;
+
+  const rest = active
+    ? 1
+    : node.brewing === undefined
+      ? DIM_NODE
+      : aside
+        ? DIM_ORB_ASIDE
+        : LOOSE_NODE;
 
   const layout = {
     // text-left 不能省：可点的那些卡是 <button>，浏览器给按钮的
     // text-align:center 会把短的那行（参与者名字）顶到中间去。
-    className: `absolute flex w-max items-center text-left transition-opacity duration-500 ease-out${
+    className: `absolute flex w-max items-center text-left transition-[opacity,transform] duration-500 ease-out${
       onSelect ? " pointer-events-auto cursor-[inherit]" : ""
     }`,
     style: {
       left: node.x - anchor,
       top: node.y,
-      transform: "translateY(-50%)",
+      transform: `${
+        arrival.at ? `translate(${spawnDx}px, ${arrival.at.dy}px) ` : ""
+      }translateY(-50%)${arrival.at ? ` scale(${arrival.at.boost})` : ""}`,
       gap: (isMoment ? 2 : 6) * s,
-      opacity: active
-        ? 1
-        : node.brewing === undefined
-          ? DIM_NODE
-          : aside
-            ? DIM_ORB_ASIDE
-            : LOOSE_NODE,
+      opacity: arrival.opacity ?? rest,
+      transition: arrival.transition,
+      pointerEvents: arrival.settled ? undefined : ("none" as const),
     },
   };
 
@@ -1775,14 +2264,14 @@ function FieldNode({
       {isMoment ? (
         <p
           className="whitespace-nowrap font-medium text-white/70 transition-opacity duration-300"
-          style={{ fontSize: 11 * s, opacity: labels ? 1 : 0 }}
+          style={{ fontSize: 11 * s, opacity: showText ? 1 : 0 }}
         >
           {node.text}
         </p>
       ) : (
         <span
           className="flex shrink-0 flex-col transition-opacity duration-300"
-          style={{ gap: 2 * s, opacity: labels ? 1 : 0 }}
+          style={{ gap: 2 * s, opacity: showText ? 1 : 0 }}
         >
           <span
             className="flex items-baseline whitespace-nowrap"
