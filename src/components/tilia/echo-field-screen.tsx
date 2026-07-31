@@ -139,20 +139,22 @@ const CHAIN_LINE = [1, 1, 0.6, 0.35] as const;
 const DRAG_SLOP = 8;
 
 /**
- * 缩放区间。
+ * 缩放区间 0.4–0.8。
  *
- * 下界不是定值，是「整张图恰好装进这一屏」算出来的（`fitScale`）—— 缩得比
- * 全局更小没有意义，只会在四周添黑边。
+ * 下界曾经是「整张图恰好装进这一屏」算出来的（约 0.235）—— 全貌是给到了，但
+ * 一枚蝶形只剩十几个屏幕像素，看着像撒了一屏灰点，谁牵着谁反而看不出来。所以
+ * 改成定值 0.4：整张图不再一屏装完（要拖），但每一枚都还看得出是什么东西，
+ * 「这么多事互相牵着」这句话是靠密度和线说出来的，不必非得一眼看到底。
  *
- * 上界从 1.3 收到 0.8：放到原尺寸那一档时一屏只剩三四枚，拖起来找不着自己在哪
- * 一片 —— 这张图的看头是「谁牵着谁」，凑得太近就只剩一枚孤零零的卡。0.8 这一
- * 档字还读得清（远高于 `LABEL_SCALE`），一屏又能多装四分之一。
+ * 上界 0.8：放到原尺寸那一档时一屏只剩三四枚，拖起来找不着自己在哪一片。0.8
+ * 这一档字还读得清（远高于 `LABEL_SCALE`），一屏又能多装四分之一。
  *
  * `READ_SCALE` 跟着等于上界：双击在「全局 ↔ 读得清」两档之间切，而「读得清」
  * 现在就是能放到的最大。两个值必须一致 —— 双击那边靠「当前倍率是不是已经到
  * READ_SCALE」判方向，要是 READ_SCALE 高于上界，放到顶之后再双击只会原地不
  * 动，回不到全局。
  */
+const MIN_SCALE = 0.4;
 const MAX_SCALE = 0.8;
 const READ_SCALE = MAX_SCALE;
 
@@ -173,10 +175,6 @@ const LABEL_SCALE = 0.55;
  * 有上限：放得太开，隔壁那枚的命中区会先把这一下接走。
  */
 const HIT_MAX = 2;
-
-/** 全局视图的留白：左右各留一点，顶部让开关闭按钮那一行。 */
-const FIT_PAD_X = 14;
-const FIT_PAD_Y = 28;
 
 /** 星图整体的放大倍数，和布局共用一个数（那边管格距和小卡）。 */
 const ZOOM = FIELD_ZOOM;
@@ -447,7 +445,7 @@ export function EchoFieldScreen({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [viewport, setViewport] = useState({ w: 375, h: 812 });
   const [pan, setPan] = useState<Pan>({ x: 0, y: 0 });
-  const [scale, setScale] = useState(READ_SCALE);
+  const [scale, setScale] = useState(MIN_SCALE);
   const [animatePan, setAnimatePan] = useState(true);
   const [hinted, setHinted] = useState(false);
   /**
@@ -462,26 +460,6 @@ export function EchoFieldScreen({
     : selectedDestiny
       ? destinySheetH
       : echoSheetH;
-
-  /**
-   * 整张图恰好装进这一屏的倍率 —— 也就是「全局」，同时是缩放的下界。
-   *
-   * 按 `contentHeight` 算，不按 `height`：底下那段 `BOTTOM_RESERVE` 是留给
-   * 「选中后把簇抬到半层之上」的行程，是空的，把它也算进取景只会让内容白白
-   * 缩小一圈。
-   */
-  const fitScale = useMemo(
-    () =>
-      clamp(
-        Math.min(
-          (viewport.w - FIT_PAD_X * 2) / field.width,
-          (viewport.h - SAFE_TOP - FIT_PAD_Y) / field.contentHeight,
-        ),
-        0.1,
-        READ_SCALE,
-      ),
-    [viewport.w, viewport.h, field.width, field.contentHeight],
-  );
 
   /**
    * 拖动边界。缩放之后画布在屏幕上占 `field.width * s`，所以边界得跟着倍率
@@ -513,23 +491,22 @@ export function EchoFieldScreen({
   );
 
   /**
-   * 全局视图的取景：内容摆在「关闭按钮那行之下」这块可读区的正中。
+   * 开场取景：横向居中，竖向让内容的上沿贴着屏顶。
    *
-   * 竖向按 `contentHeight` 居中，不按画布总高 —— 底下那段留白算进来的话，内容
-   * 会整体上移，第一行正好钻到状态栏底下。
+   * 0.4 这一档内容比一屏高（也比一屏宽），所以没有「摆到正中」这回事，只有从
+   * 哪儿开始看 —— 从头开始看。按 `contentTop` 对齐而不是画布 0：画布顶上那段
+   * `TOP_PAD` 是空的，按 0 对齐会先怼进来七八十像素的空白。
    */
-  const fitPan = useCallback(
+  const homePan = useCallback(
     (s: number): Pan =>
       clampPanAt(
         {
           x: (viewport.w - field.width * s) / 2,
-          y:
-            SAFE_TOP +
-            (viewport.h - SAFE_TOP - field.contentHeight * s) / 2,
+          y: -field.contentTop * s,
         },
         s,
       ),
-    [clampPanAt, viewport.w, viewport.h, field.width, field.contentHeight],
+    [clampPanAt, viewport.w, field.width, field.contentTop],
   );
 
   /*
@@ -556,11 +533,10 @@ export function EchoFieldScreen({
   }, [mounted]);
 
   /*
-   * 开场：全局。整张图缩到装得下，摆在正中，什么都不选，不做动画。
+   * 开场：缩到下界（0.4），从内容顶上开始看，什么都不选，不做动画。
    *
-   * 先给全貌是有取舍的 —— 这个尺度上字是读不了的（`labels` 会把它们收掉）。
-   * 但这一屏第一句要说的话是「这么多事互相牵着」，那是只有全貌才说得出来
-   * 的；具体哪一件，双击或双指撑开再看。
+   * 这个尺度上字还是读不了的（`labels` 会把它们收掉）—— 第一句要说的话是「这么
+   * 多事互相牵着」，那是靠密度和线说的；具体哪一件，双击或双指撑开再看。
    */
   const openedRef = useRef(false);
   useEffect(() => {
@@ -571,14 +547,9 @@ export function EchoFieldScreen({
     if (openedRef.current) return;
     openedRef.current = true;
     setAnimatePan(false);
-    setScale(fitScale);
-    setPan(fitPan(fitScale));
-  }, [open, fitScale, fitPan]);
-
-  // 屏幕尺寸变了（转屏、窗口拉动）全局那一档也跟着变，别让倍率掉到界外。
-  useEffect(() => {
-    setScale((s) => clamp(s, fitScale, MAX_SCALE));
-  }, [fitScale]);
+    setScale(MIN_SCALE);
+    setPan(homePan(MIN_SCALE));
+  }, [open, homePan]);
 
   useEffect(() => {
     if (!selectedPoint) return;
@@ -615,7 +586,7 @@ export function EchoFieldScreen({
   const zoomTo = useCallback(
     (target: number, at: Point) => {
       const prev = scaleRef.current;
-      const next = clamp(target, fitScale, MAX_SCALE);
+      const next = clamp(target, MIN_SCALE, MAX_SCALE);
       if (next === prev) return;
       const p = panRef.current;
       const canvas = { x: (at.x - p.x) / prev, y: (at.y - p.y) / prev };
@@ -627,7 +598,7 @@ export function EchoFieldScreen({
         ),
       );
     },
-    [fitScale, clampPanAt],
+    [clampPanAt],
   );
 
   /** 场上按着的手指（屏幕坐标）。两根就是捏合，一根才是拖。 */
@@ -706,7 +677,7 @@ export function EchoFieldScreen({
       const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
       const next = clamp(
         (pinch.startScale * dist) / pinch.startDist,
-        fitScale,
+        MIN_SCALE,
         MAX_SCALE,
       );
       const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -791,7 +762,7 @@ export function EchoFieldScreen({
       swallowClickRef.current = true;
       setHinted(true);
       setAnimatePan(true);
-      zoomTo(scaleRef.current < READ_SCALE - 0.02 ? READ_SCALE : fitScale, p);
+      zoomTo(scaleRef.current < READ_SCALE - 0.02 ? READ_SCALE : MIN_SCALE, p);
       return;
     }
     lastTapRef.current = { t, x: p.x, y: p.y };

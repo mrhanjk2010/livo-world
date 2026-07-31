@@ -181,6 +181,14 @@ export type EchoField = {
   height: number;
   /** 有内容的那部分高度（`height` 减去底部给半层留的行程）。 */
   contentHeight: number;
+  /**
+   * 最靠上那个东西的上沿（含它的光晕/胶囊）。
+   *
+   * 画布顶上有 `TOP_PAD` 一段空 —— 那是给第一行的簇摆它上方小卡用的，摆不满
+   * 就是纯空白。开场取景要「内容贴着屏顶」，按画布 0 对齐会先怼进来七八十个
+   * 像素的空，所以量一个真实的上沿出来（见 `EchoFieldScreen` 的 `homePan`）。
+   */
+  contentTop: number;
   orbs: readonly EchoFieldOrb[];
   destinies: readonly EchoFieldDestiny[];
   nodes: readonly EchoFieldNode[];
@@ -362,10 +370,18 @@ export function buildEchoField(
     );
   });
 
+  /* 真实上沿：`TOP_PAD` 那段空不算内容（见 `contentTop` 的说明）。 */
+  const contentTop = Math.min(
+    ...orbs.map((o) => o.y - ECHO_ORB_RADIUS),
+    ...destinyPoints.map((d) => destinyRect(d).t),
+    ...nodes.map((n) => nodeRect(n).t),
+  );
+
   return {
     width,
     height,
     contentHeight,
+    contentTop,
     orbs,
     destinies: destinyPoints,
     nodes,
