@@ -2484,7 +2484,63 @@ function brewingPct(v: number): string {
  * 底和半层都近黑，不描一下边界就分不出哪儿是卡的上沿。
  */
 const SHEET_SHELL =
-  "absolute bottom-0 left-0 w-full overflow-hidden rounded-t-[16px] border-t border-white/[0.08] bg-[#070912]/[0.74] pb-[16px] backdrop-blur-[10px] transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)]";
+  "absolute bottom-0 left-0 w-full overflow-hidden rounded-t-[16px] border-t border-[#3bff8f]/15 bg-[#070912]/[0.74] pb-[16px] backdrop-blur-[10px] transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)]";
+
+/**
+ * 半层里的字只有一种颜色 —— 和线、和事件光点同一种绿；主次全靠透明度。
+ *
+ * 这一屏是「世界背面」：看的是世界在拿什么算什么，不是一张读物。字一旦分成白
+ * 标题、灰正文、蓝分类，读到的就是一个排版精良的详情页；收成单色之后，它读起来
+ * 是一块终端输出 —— 该有的层次仍在（标题最亮、正文次之、分节名几乎沉进背景），
+ * 只是全部由「亮多少」承担，不再借颜色。
+ *
+ * 用带 alpha 的色值而不是 CSS opacity：opacity 会把整个元素连子节点一起压暗，
+ * 而这几行字里还夹着头像和图标 —— 那些不该跟着字一起淡。
+ */
+function ink(alpha: number): string {
+  return `${LINE_ACCENT}${Math.round(clamp(alpha, 0, 1) * 255)
+    .toString(16)
+    .padStart(2, "0")}`;
+}
+
+/** 标题：这一枚叫什么。整张半层最亮的一行。 */
+const INK_TITLE = ink(0.96);
+/** 正文：它是怎么发生的。 */
+const INK_BODY = ink(0.72);
+/** 附注：说话人、地点、分类、进度 —— 读完标题顺手扫到的那些。 */
+const INK_META = ink(0.5);
+/** 分节名（「被这些牵出来」之类）：只用来分段，几乎沉进背景。 */
+const INK_LABEL = ink(0.34);
+/** 最弱的一档：数字、次要的前缀。 */
+const INK_FAINT = ink(0.24);
+
+/**
+ * 半层右上角那行「在哪儿」。
+ *
+ * 那枚定位图标是一张灰色单色 SVG，直接摆上去会成为整张半层里唯一一块非绿的东
+ * 西。所以不当图片用，当形状用 —— mask 挖出形状，底色填同一种绿。改颜色因此
+ * 不用另出一版素材，和字用的是同一个色阶。
+ */
+function SheetPlace({ name }: { name: string }) {
+  return (
+    <div className="flex shrink-0 items-center gap-[3px] py-[3px]">
+      <span
+        aria-hidden
+        className="block size-[14px] shrink-0"
+        style={{
+          background: INK_META,
+          maskImage: "url(/figma/tilia/echo/icon-location.svg)",
+          maskSize: "contain",
+          maskRepeat: "no-repeat",
+          maskPosition: "center",
+        }}
+      />
+      <p className="text-[12px] leading-[18px]" style={{ color: INK_META }}>
+        {name}
+      </p>
+    </div>
+  );
+}
 
 /**
  * 选中回响的内容（设计稿 `3407:10727`）。
@@ -2540,33 +2596,29 @@ function EchoDetailSheet({
       {shown ? (
         <div className="relative flex flex-col gap-[12px] px-[20px] pb-[24px] pt-[20px]">
           <div className="flex items-start justify-between gap-[12px]">
-            <h2 className="text-[18px] font-medium leading-[normal] text-white">
+            <h2
+              className="text-[18px] font-medium leading-[normal]"
+              style={{ color: INK_TITLE }}
+            >
               {shown.title}
             </h2>
-            {room ? (
-              <div className="flex shrink-0 items-center gap-[2px] py-[3px]">
-                <Image
-                  src="/figma/tilia/echo/icon-location.svg"
-                  alt=""
-                  width={16}
-                  height={16}
-                  className="size-[16px]"
-                />
-                <p className="text-[12px] leading-[18px] text-white/60">
-                  {room.name}
-                </p>
-              </div>
-            ) : null}
+            {room ? <SheetPlace name={room.name} /> : null}
           </div>
 
           <div className="flex items-center gap-[4px]">
             <SpeakerStack speakers={shown.speakers} size={16} overlap={6} />
-            <p className="text-[12px] font-medium leading-[1.6] text-white/70 opacity-80">
+            <p
+              className="text-[12px] font-medium leading-[1.6]"
+              style={{ color: INK_META }}
+            >
               {shown.speakers.map(speakerName).join("、")}
             </p>
           </div>
 
-          <p className="text-[13px] font-medium leading-[22px] text-white/70">
+          <p
+            className="text-[13px] font-medium leading-[22px]"
+            style={{ color: INK_BODY }}
+          >
             {shown.resultText}
           </p>
 
@@ -2623,7 +2675,6 @@ function DestinyDetailSheet({
 
   const room = shown ? ROOM_BY_ID[shown.roomId] : null;
   const destined = shown?.kind === "destined";
-  const accent = destined ? DESTINED_ACCENT : DESTINY_ACCENT;
 
   return (
     <div
@@ -2638,40 +2689,38 @@ function DestinyDetailSheet({
         <div className="relative flex flex-col gap-[12px] px-[20px] pb-[24px] pt-[20px]">
           <div className="flex items-start justify-between gap-[12px]">
             <div className="flex flex-col gap-[6px]">
-              <p
-                className="text-[11px] leading-[normal]"
-                style={{ color: `${accent}d9` }}
-              >
+              {/*
+                潜在／注定原先是靠这行字的颜色分的（蓝 / 粉橙）。收成单色之后这个
+                区别由字面本身说 —— 「潜在命运」和「注定命运」四个字已经说清了，
+                颜色那一层是冗余的；图上那枚蝶形仍然按两色画，认色的地方在那儿。
+              */}
+              <p className="text-[11px] leading-[normal]" style={{ color: INK_META }}>
                 {destined ? "注定命运" : "潜在命运"}
               </p>
-              <h2 className="text-[18px] font-medium leading-[normal] text-white">
+              <h2
+                className="text-[18px] font-medium leading-[normal]"
+                style={{ color: INK_TITLE }}
+              >
                 {shown.title}
               </h2>
             </div>
-            {room ? (
-              <div className="flex shrink-0 items-center gap-[2px] py-[3px]">
-                <Image
-                  src="/figma/tilia/echo/icon-location.svg"
-                  alt=""
-                  width={16}
-                  height={16}
-                  className="size-[16px]"
-                />
-                <p className="text-[12px] leading-[18px] text-white/60">
-                  {room.name}
-                </p>
-              </div>
-            ) : null}
+            {room ? <SheetPlace name={room.name} /> : null}
           </div>
 
           <div className="flex items-center gap-[4px]">
             <SpeakerStack speakers={shown.speakers} size={16} overlap={6} />
-            <p className="text-[12px] font-medium leading-[1.6] text-white/70 opacity-80">
+            <p
+              className="text-[12px] font-medium leading-[1.6]"
+              style={{ color: INK_META }}
+            >
               {shown.speakers.map(speakerName).join("、")}
             </p>
           </div>
 
-          <p className="text-[13px] font-medium leading-[22px] text-white/70">
+          <p
+            className="text-[13px] font-medium leading-[22px]"
+            style={{ color: INK_BODY }}
+          >
             {shown.outcomeText}
           </p>
 
@@ -2717,8 +2766,10 @@ function CausePills({
   if (points.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-[6px] border-t border-white/10 pt-[10px]">
-      <p className="text-[11px] leading-[normal] text-white/35">{label}</p>
+    <div className="flex flex-col gap-[6px] border-t border-[#3bff8f]/[0.12] pt-[10px]">
+      <p className="text-[11px] leading-[normal]" style={{ color: INK_LABEL }}>
+        {label}
+      </p>
       <div className="flex flex-wrap gap-[6px]">
         {points.map((p) => {
           const accent = p.isDestiny ? DESTINY_ACCENT : ACCENT;
@@ -2728,9 +2779,14 @@ function CausePills({
               type="button"
               onClick={() => onPick(p.id)}
               className="flex items-center gap-[4px] rounded-full border py-[5px] pl-[8px] pr-[10px] transition-transform duration-200 active:scale-95"
+              /*
+               * 胶囊的边和底跟着字走同一种绿；只有里面那枚小标记还按类型上色
+               * （回响暖橙、命运冷蓝），和图上一致 —— 它说的是「这是哪一类」，
+               * 不是「这条更重要」，所以不在「主次只靠透明度」这条规矩里。
+               */
               style={{
-                borderColor: `${accent}40`,
-                background: `${accent}14`,
+                borderColor: ink(0.22),
+                background: ink(0.07),
               }}
             >
               {p.isDestiny ? (
@@ -2747,7 +2803,10 @@ function CausePills({
                   style={{ background: accent, boxShadow: `0 0 6px ${accent}` }}
                 />
               )}
-              <span className="text-[12px] font-medium leading-[normal] text-white/80">
+              <span
+                className="text-[12px] font-medium leading-[normal]"
+                style={{ color: INK_BODY }}
+              >
                 {p.title}
               </span>
             </button>
@@ -2808,10 +2867,13 @@ function LooseEventSheet({
       {shown ? (
         <div className="relative flex flex-col gap-[12px] px-[20px] pb-[24px] pt-[20px]">
           <div className="flex flex-col gap-[6px]">
-            <p className="text-[11px] leading-[normal] text-white/35">
+            <p className="text-[11px] leading-[normal]" style={{ color: INK_LABEL }}>
               还没结出回响
             </p>
-            <h2 className="text-[18px] font-medium leading-[normal] text-white">
+            <h2
+              className="text-[18px] font-medium leading-[normal]"
+              style={{ color: INK_TITLE }}
+            >
               {shown.text}
             </h2>
           </div>
@@ -2819,32 +2881,44 @@ function LooseEventSheet({
           {shown.speakers.length > 0 ? (
             <div className="flex items-center gap-[4px]">
               <SpeakerStack speakers={shown.speakers} size={16} overlap={6} />
-              <p className="text-[12px] font-medium leading-[1.6] text-white/70 opacity-80">
+              <p
+                className="text-[12px] font-medium leading-[1.6]"
+                style={{ color: INK_META }}
+              >
                 {shown.speakers.map(speakerName).join("、")}
               </p>
             </div>
           ) : null}
 
           <div className="flex items-center gap-[10px]">
-            <span className="relative h-[3px] flex-1 overflow-hidden rounded-full bg-white/[0.14]">
+            {/* 进度条也收进这套绿：整张半层只剩一种颜色，它是唯一的例外就太显眼 */}
+            <span
+              className="relative h-[3px] flex-1 overflow-hidden rounded-full"
+              style={{ background: ink(0.12) }}
+            >
               <span
                 className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-500 ease-out"
                 style={{
                   width: `${Math.round(clamp(brewing, 0, 1) * 100)}%`,
-                  background: ACCENT,
-                  opacity: 0.7,
+                  background: ink(0.55),
                 }}
               />
             </span>
-            <p className="shrink-0 text-[11px] leading-[normal] text-white/45">
+            <p
+              className="shrink-0 text-[11px] leading-[normal]"
+              style={{ color: INK_META }}
+            >
               {brewingLabel(brewing)}
-              <span className="text-white/25"> · {brewingPct(brewing)}</span>
+              <span style={{ color: INK_FAINT }}> · {brewingPct(brewing)}</span>
             </p>
           </div>
 
           {nudges.length > 0 ? (
-            <div className="flex flex-col gap-[8px] border-t border-white/10 pt-[12px]">
-              <p className="text-[11px] leading-[normal] text-white/35">
+            <div className="flex flex-col gap-[8px] border-t border-[#3bff8f]/[0.12] pt-[12px]">
+              <p
+                className="text-[11px] leading-[normal]"
+                style={{ color: INK_LABEL }}
+              >
                 想让它落下来，可以
               </p>
               {nudges.map((n) => (
@@ -2857,12 +2931,22 @@ function LooseEventSheet({
                     这样它和右边第一行文字是同一个行盒，文字换行也不会跟着
                     往下掉。宽度由文字撑开，不定死。
                   */}
-                  <span className="inline-flex h-[20px] shrink-0 items-center rounded-full border border-white/15 bg-white/[0.06] px-[7px] text-[10px] leading-none text-white/55">
+                  <span
+                    className="inline-flex h-[20px] shrink-0 items-center rounded-full border px-[7px] text-[10px] leading-none"
+                    style={{
+                      borderColor: ink(0.22),
+                      background: ink(0.07),
+                      color: INK_META,
+                    }}
+                  >
                     {n.kind === "chat" ? "去聊" : "回应这一刻"}
                   </span>
-                  <p className="text-[13px] font-medium leading-[20px] text-white/75">
+                  <p
+                    className="text-[13px] font-medium leading-[20px]"
+                    style={{ color: INK_BODY }}
+                  >
                     {n.who ? (
-                      <span className="text-white/40">{n.who} · </span>
+                      <span style={{ color: INK_META }}>{n.who} · </span>
                     ) : null}
                     {n.text}
                   </p>
