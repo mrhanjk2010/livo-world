@@ -187,6 +187,19 @@ if [ -n "$VERSION" ] && [ "$PROMOTE" = "1" ]; then
 <a href="./$VERSION/tilia/map/" style="color:#6dffa8">直接打开</a></p>
 <script>location.replace("./$VERSION/tilia/map/")</script>
 HTML
+  # 分目录之前发出去的深链（/tilia/map/ 之类）现在落在空处。Pages 对站内未
+  # 知路径一律回 404.html，就借它把人送回根跳转页 —— 注意必须写绝对路径，
+  # 相对的 "./" 在深链下会指回它自己，转成死循环。
+  cat > "$REPO_DIR/404.html" <<HTML
+<!doctype html>
+<meta charset="utf-8">
+<title>蒂利亚之冬 · demo</title>
+<meta http-equiv="refresh" content="0; url=/$REPO/">
+<body style="margin:0;background:#0a0a0a;color:#888;font:14px/1.6 -apple-system,system-ui,sans-serif">
+<p style="padding:24px">这个地址下没有页面了 —— 演示改成按版本分目录。
+<a href="/$REPO/" style="color:#6dffa8">去最新那一版</a></p>
+<script>location.replace("/$REPO/")</script>
+HTML
 fi
 
 # 把漏掉 basePath 的绝对资源路径补上。`[^l]` 之类的判断不可靠，直接先
