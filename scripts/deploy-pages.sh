@@ -10,6 +10,22 @@
 # 两份产物内容一样，分开只是为了各有各的链接：world-demo 是长期在跑的那
 # 个，pr-demo 是拿出去讲的那个，随时可以停在某个版本上不动。
 #
+# 版本（VERSION）：
+#
+#   VERSION=v2 REPO=livo-pr-demo bash scripts/deploy-pages.sh "说明"
+#
+# 给了 VERSION 就发到 `<仓>/<版本>/` 下，basePath 跟着变成 `/仓/版本`，站点根
+# 只留一个跳转页指向最新那一版（PROMOTE=1，默认）。重建一个旧版本时带
+# PROMOTE=0，免得旧版把根抢过去。版本号会以 NEXT_PUBLIC_DEMO_VERSION 注入构
+# 建，产物里的版本切换器靠它认出「当前是哪一版」（见 src/lib/demo-versions.ts）。
+#
+# 重建旧版本用 git worktree（源码是旧的，部署仓还是主仓那个 checkout）：
+#
+#   git worktree add .attic/v1-src demo-v1
+#   cd .attic/v1-src && ln -s ../../node_modules .        # 依赖没变，借主仓的
+#   DEPLOY_BASE=<主仓绝对路径> VERSION=v1 PROMOTE=0 REPO=livo-pr-demo \
+#     bash scripts/deploy-pages.sh "重建 v1"
+#
 # 注意：这个脚本会 rm -rf .next 并临时改写 next.config.ts —— 正在跑的
 # dev server 会被连累重启，跟着重建 .next 和 build 抢同一个目录，导出会
 # 静默只剩 404.html（和下面第 5 条一模一样的假象）。所以开头直接拦住，
@@ -51,15 +67,27 @@ cd "$ROOT"
 
 REPO="${REPO:-livo-world-demo}"
 BUILD_NODE="22.14.0"
-BASE_PATH="/$REPO"
-DEPLOY_DIR="$ROOT/$REPO"
+VERSION="${VERSION:-}"
+PROMOTE="${PROMOTE:-1}"
+# 部署仓所在的目录。默认就在源码仓边上；从 worktree 里重建旧版本时指到主仓。
+DEPLOY_BASE="${DEPLOY_BASE:-$ROOT}"
+REPO_DIR="$DEPLOY_BASE/$REPO"
 STASH="$ROOT/.deploy-stash"
 MSG="${1:-Update static export}"
 
-if [ ! -d "$DEPLOY_DIR/.git" ]; then
-  echo "找不到部署仓 $DEPLOY_DIR（应该是 $REPO 的 git checkout）" >&2
+if [ -n "$VERSION" ]; then
+  BASE_PATH="/$REPO/$VERSION"
+  DEPLOY_DIR="$REPO_DIR/$VERSION"
+else
+  BASE_PATH="/$REPO"
+  DEPLOY_DIR="$REPO_DIR"
+fi
+
+if [ ! -d "$REPO_DIR/.git" ]; then
+  echo "找不到部署仓 $REPO_DIR（应该是 $REPO 的 git checkout）" >&2
   exit 1
 fi
+mkdir -p "$DEPLOY_DIR"
 
 # dev server 和 build 抢 .next，抢输的那次不会报错，只会少页面。
 if pgrep -f "next dev" >/dev/null 2>&1; then
@@ -118,7 +146,10 @@ p.write_text(s)
 PY
 
 rm -rf out .next
-npm exec -y --package="node@$BUILD_NODE" -- node ./node_modules/next/dist/bin/next build
+# 版本号进构建：产物里的版本切换器靠它认出自己是哪一版，以及去别版的地址前缀。
+NEXT_PUBLIC_DEMO_VERSION="$VERSION" \
+NEXT_PUBLIC_DEMO_BASE="/$REPO" \
+  npm exec -y --package="node@$BUILD_NODE" -- node ./node_modules/next/dist/bin/next build
 
 # 断言：Next 在这个坑上不报错，只能自己查。少了首页就说明导出被跳过了，
 # 这时候绝对不能往部署仓 rsync（--delete 会把线上页面全删掉）。
@@ -134,11 +165,29 @@ for must in out/index.html out/tilia/map/index.html out/tilia/continent/index.ht
 done
 
 # 同步产物。保留部署仓自己的东西（.git / .nojekyll / README）—— --delete
-# 会把不在 out/ 里的文件全清掉。
+# 会把不在 out/ 里的文件全清掉。发到根目录时还要护住各版本子目录和跳转页，
+# 否则一次根部署就把线上所有历史版本删干净了。
 rsync -a --delete \
   --exclude ".git" --exclude ".nojekyll" --exclude "README.md" \
+  --exclude "/v[0-9]*/" \
   out/ "$DEPLOY_DIR/"
-touch "$DEPLOY_DIR/.nojekyll"
+touch "$REPO_DIR/.nojekyll"
+
+# 站点根的跳转页：分享出去的短链永远落到最新那一版。
+if [ -n "$VERSION" ] && [ "$PROMOTE" = "1" ]; then
+  cat > "$REPO_DIR/index.html" <<HTML
+<!doctype html>
+<meta charset="utf-8">
+<title>蒂利亚之冬 · demo</title>
+<!-- 由 scripts/deploy-pages.sh 写入：站点根只负责把人送到最新那一版。 -->
+<meta http-equiv="refresh" content="0; url=./$VERSION/tilia/map/">
+<link rel="canonical" href="./$VERSION/tilia/map/">
+<body style="margin:0;background:#0a0a0a;color:#888;font:14px/1.6 -apple-system,system-ui,sans-serif">
+<p style="padding:24px">正在进入最新版本 $VERSION …
+<a href="./$VERSION/tilia/map/" style="color:#6dffa8">直接打开</a></p>
+<script>location.replace("./$VERSION/tilia/map/")</script>
+HTML
+fi
 
 # 把漏掉 basePath 的绝对资源路径补上。`[^l]` 之类的判断不可靠，直接先
 # 把已带前缀的还原成裸路径，再统一加前缀 —— 天然幂等。
@@ -159,7 +208,7 @@ find "$DEPLOY_DIR" \
 restore
 trap - EXIT
 
-cd "$DEPLOY_DIR"
+cd "$REPO_DIR"
 git add -A
 if git diff --cached --quiet; then
   echo "产物没有变化，跳过提交。"
@@ -169,4 +218,7 @@ else
 fi
 
 echo
-echo "已发布：https://mrhanjk2010.github.io${BASE_PATH}/"
+echo "已发布：https://mrhanjk2010.github.io${BASE_PATH}/tilia/map/"
+if [ -n "$VERSION" ] && [ "$PROMOTE" = "1" ]; then
+  echo "根地址已指向本版：https://mrhanjk2010.github.io/$REPO/"
+fi

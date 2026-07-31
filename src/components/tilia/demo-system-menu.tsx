@@ -1,5 +1,6 @@
 "use client";
 
+import { DemoVersionSwitch } from "@/components/tilia/demo-version-switch";
 import { useDemoMode } from "@/components/tilia/demo-mode-context";
 import { useStoryFlags } from "@/components/tilia/story-flags-context";
 import { DEMO_PRESETS } from "@/lib/tilia/demo-mode";
@@ -35,9 +36,11 @@ export function DemoSystemMenu() {
           演示控制
         </h2>
         <p className="mt-[4px] text-[12px] leading-[1.45] text-white/40">
-          在手机框外切换图层与剧情时间节点，不影响产品内 UI。
+          在手机框外切换版本、图层与剧情时间节点，不影响产品内 UI。
         </p>
       </header>
+
+      <DemoVersionSwitch />
 
       <section className="flex flex-col gap-[6px]">
         <p className="px-[2px] text-[11px] font-medium tracking-[0.06em] text-white/35 uppercase">
