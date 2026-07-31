@@ -120,9 +120,13 @@ const LOOSE_NODE = 0.6;
 /**
  * 静息态那张网的不透明度。压得比最暗的节点还低：它要读作「底下的纹路」，一旦
  * 和节点争亮度，满屏七十多条线就成了一团毛线，谁是果就看不出来了。
+ *
+ * 从 0.16 提到 0.28 是给虚线和渐变找回来的：断续本身已经去掉六成笔迹，渐变又
+ * 把靠因那头化掉，照原来那档整张网基本看不见了。屏幕上的实际分量和实线那版
+ * 大致持平。
  */
-const REST_LINE = 0.16;
-const REST_LINE_ASIDE = 0.07;
+const REST_LINE = 0.28;
+const REST_LINE_ASIDE = 0.13;
 
 /**
  * 上游链条按代际衰减：直接的因几乎和选中的果一样亮，越往回追越淡，追到
@@ -1275,16 +1279,22 @@ function panForBox(
 /* ─────────────────────────── 连线 ─────────────────────────── */
 
 /**
- * 静息态的那张网：图上每一条因果都连着，一根很淡的细线，没有光晕也不流动。
+ * 静息态的那张网：图上每一条因果都连着，一根很淡的渐变虚线，没有光晕也不流动。
  *
  * 刻意画得比什么都轻 —— 它的作用是让人看出「这些事本来就互相牵着」，而不是
  * 让人去读某一条。一旦有东西被选中，它再退一档（`aside`），把注意力让给被挑
  * 亮的那条链。
  *
- * 和 `FlowLines` 分成两个组件，是因为两者的目的不同、代价也不同：那边一条线
- * 三层描边加一道流光，用在七十多条上会拖垮这一屏；这边一条就是一笔，全画完也
- * 不过七十多个 path。同理这里不给每条线做渐变 —— 静息态不需要读方向，方向是
- * 选中之后才要交代的事。
+ * 虚线加渐变，是为了让静息态和选中态从质感上就分开：选中的那条是一根连续的、
+ * 淌着光的线（`FlowLines`），静息的是断续的、往因那头化掉的痕 —— 一条是「正在
+ * 发生」，一条是「记在那儿」。渐变方向和选中态一致（因那头透明、果那头显形），
+ * 所以就算没选中，顺着哪头亮也读得出方向。
+ *
+ * 虚线的段长和间隔都按 `weight` 反向补偿：跟线宽一个道理，缩小时段长不放大就
+ * 密成一根实线，虚线也就白虚了。
+ *
+ * 和 `FlowLines` 仍分成两个组件：那边一条线三层描边加一道流光，用在七十多条上
+ * 会拖垮这一屏；这边一条就是一笔加一个 gradient，静态、不动，画满也还撑得住。
  */
 function RestLines({
   edges,
@@ -1309,14 +1319,36 @@ function RestLines({
       opacity={aside ? REST_LINE_ASIDE : REST_LINE}
       aria-hidden
     >
+      <defs>
+        {edges.map((e) => (
+          <linearGradient
+            key={e.id}
+            id={`echo-rest-${e.id}`}
+            gradientUnits="userSpaceOnUse"
+            x1={e.from.x}
+            y1={e.from.y}
+            x2={e.to.x}
+            y2={e.to.y}
+          >
+            <stop stopColor={LINE_ACCENT} stopOpacity="0.05" />
+            <stop offset="0.5" stopColor={LINE_ACCENT} stopOpacity="0.5" />
+            <stop offset="1" stopColor={LINE_ACCENT} stopOpacity="1" />
+          </linearGradient>
+        ))}
+      </defs>
+
       <g
         fill="none"
-        stroke={LINE_ACCENT}
-        strokeWidth={0.8 * weight}
+        strokeWidth={0.9 * weight}
         strokeLinecap="round"
+        strokeDasharray={`${3.6 * weight} ${5.4 * weight}`}
       >
         {edges.map((e) => (
-          <path key={e.id} d={arcPath(e.from, e.to)} />
+          <path
+            key={e.id}
+            d={arcPath(e.from, e.to)}
+            stroke={`url(#echo-rest-${e.id})`}
+          />
         ))}
       </g>
     </svg>
