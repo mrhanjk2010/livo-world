@@ -1,5 +1,5 @@
 /**
- * 世界命运星图的落位（设计稿 `3406:9892` / `3407:10459`）。
+ * 世界背面星图的落位（设计稿 `3406:9892` / `3407:10459`）。
  *
  * 设计稿给的是一屏的取景：回响光球散在整屏，事件/时机小卡更弱地铺在它们
  * 之间，选中一枚才拉出弧线。但世界记的事比一屏多得多 —— 所以这里不再把
@@ -15,12 +15,11 @@
  * 一起往上走才不会被半层吃掉。同理画布底部留 `BOTTOM_RESERVE` 一段空 ——
  * 最后一行的簇也得抬得起来。
  *
- * 簇按 3 列 × N 行分区摆，区内偏移由 id 哈希决定：确定性的（每次打开同一
- * 枚回响都在同一处，截图和记忆才对得上），但不整齐（不然一眼就是网格）。
+ * 簇按 `COLS` 列 × N 行分区摆，区内偏移由 id 哈希决定：确定性的（每次打开同
+ * 一枚回响都在同一处，截图和记忆才对得上），但不整齐（不然一眼就是网格）。
  * 坐标是画布 px，不是百分比 —— 星图不跟着地图缩放，没有换算的必要。
  *
- * 画布最右边另开一条道给命运（`LANE_W`）：它们是一条首尾相接的主线，混进
- * 簇阵里就读不出先后了。
+ * 命运和回响共用这套格子、交替落位（见 `layoutHeads`），不再各占半张画布。
  */
 
 import type {
@@ -45,28 +44,47 @@ const ZOOM = FIELD_ZOOM;
 /** 光晕溢出后的视觉半径（核心 44、光晕铺到 82，都按 ZOOM 放大）。 */
 export const ECHO_ORB_RADIUS = Math.round(41 * ZOOM);
 
-const COLS = 3;
-const CELL_W = Math.round(248 * ZOOM);
+/**
+ * 回响和命运摆进同一套格子，四列。
+ *
+ * 原先命运独占右边两列：一条链自上而下确实读得顺，代价是整张图被读成两张 ——
+ * 左边一片回响，右边一条命运，中间那道缝比任何一根连线都显眼。而这张图想说
+ * 的恰恰是两者是一回事：命运结出回响，回响又成了下一枚命运的前提。所以现在
+ * 两种按比例交替填进同一串格子（见 `layoutHeads`）：一列里回响和命运上下相
+ * 邻，链条仍然自上而下（画布向下就是时间向前），只是每两枚之间夹着别的东
+ * 西 —— 连线因此非得穿过邻居，穿插是排出来的，不是画出来的。
+ *
+ * 列数和格宽还受「默认展示全局」约束：全局那一档的倍率就是「画布装进这一
+ * 屏」，画布长宽比一旦离手机的 0.46 太远，短的那一维就空出一大片。二十九枚
+ * 头节点按四列排是八行，内容高两千九百上下，格宽取 340（四列 1360）时长宽比
+ * 0.465，正对着屏幕的 0.46 —— 全局那一档两头都不空。
+ */
+const COLS = 4;
+const CELL_W = Math.round(272 * ZOOM);
 const CELL_H = Math.round(256 * ZOOM);
 
 /**
- * 命运走最右边那片地方，一条因果链占一列。
+ * 每列整体上下错开 0–0.55 格，错多少由列号哈希定。
  *
- * 混在回响簇里摆试过：命运和回响的连线会横穿三四簇，谁指谁全看不出来。分出
- * 来之后，一条链自上而下读得一气贯通，跨回左边指向回响的那几段反而因为长而
- * 更明显 —— 那正是这张图要说的「命运的果落在了别处」。
- *
- * 一列一条链，是因为「链」才是这边的阅读单位。列不够就并到同一列里接着排，
- * 两条链之间空出整整一行（`LANE_CHAIN_GAP`）—— 挨着摆会被读成一条长链。
+ * 不错开的话二十多枚横着连成整齐的几排，一眼就是网格；固定错半格是另一种规
+ * 律（一高一低的锯齿）。按列取一个确定性的偏移，既不成排也不成齿。
  */
-const LANE_COL_W = Math.round(214 * ZOOM);
-const LANE_COLS = 3;
-/** 一枚命运（上方两张小卡 + 蝶形 + 标题胶囊）占的行高。 */
-const LANE_ROW_H = Math.round(240 * ZOOM);
-const LANE_CHAIN_GAP = 1;
-/** 促成命运的小卡摆在它左上方 —— 命运已经靠右，往右摆会顶出画布。 */
-const LANE_NODE_DX = Math.round(-88 * ZOOM);
-const LANE_NODE_DY = [Math.round(-88 * ZOOM), Math.round(-51 * ZOOM)] as const;
+const COL_STAGGER = 0.55;
+
+/**
+ * 头节点在格子里的游移幅度，按格宽/格高的比例算（`jitter` 收的是全幅，所以
+ * 0.9 是 ±0.45 格）。
+ *
+ * 横向几乎游满一整格：相邻两列的落点区间因此重叠，看不出是四列 —— 代价是两
+ * 枚可能撞上，落位之后过一遍 `relaxHeads` 推开。先放开摆、再推开，比一开始就
+ * 把幅度压小好：压小了就又成列了。
+ */
+const HEAD_SPREAD_X = 0.9;
+const HEAD_SPREAD_Y = 0.4;
+
+/** 促成命运的小卡摆在它左上方 —— 蝶形下面挂着标题胶囊，正下方摆不开。 */
+const DESTINY_NODE_DX = Math.round(-88 * ZOOM);
+const DESTINY_NODE_DY = [Math.round(-88 * ZOOM), Math.round(-51 * ZOOM)] as const;
 /** 画布底部留白：给「选中后抬到半层之上」留出行程。 */
 const BOTTOM_RESERVE = 280;
 /** 顶部留白：第一行的簇也得有地方摆它上方的节点。 */
@@ -180,21 +198,19 @@ export type LooseEvent = LooseEventSeed;
  *
  * 散件只收事件，不收时机 —— 时机推不动，孤零零摆着读不出下一步。
  *
- * `destinies` 走右边那条道，每枚也带自己的小卡（促成它的事件与时机）。它们
- * 和回响共享一套小卡渲染，只是归属指向命运而不是回响。
+ * `destinies` 和回响交替占同一套格子，每枚也带自己的小卡（促成它的事件与时
+ * 机）。它们和回响共享一套小卡渲染，只是归属指向命运而不是回响。
  */
 export function buildEchoField(
   stories: readonly EchoFieldEntry[],
   loose: readonly LooseEvent[] = [],
   destinies: readonly DestinyChainSeed[] = [],
 ): EchoField {
-  const rows = Math.max(1, Math.ceil(stories.length / COLS));
-  const clusterW = COLS * CELL_W;
-  const clusterH = TOP_PAD + rows * CELL_H;
-
-  const lane = layoutLane(destinies);
-  const width = clusterW + lane.cols * LANE_COL_W;
-  const contentHeight = Math.max(clusterH, lane.height);
+  const { rows, heads } = layoutHeads(stories, destinies);
+  const width = COLS * CELL_W;
+  /* 一列里的枚数不一定填满 `rows`，短的那列把间距摊开占满同样的高度。 */
+  const span = rows * CELL_H;
+  const contentHeight = TOP_PAD + span + Math.round(CELL_H * COL_STAGGER);
   const height = contentHeight + BOTTOM_RESERVE;
 
   const clampX = (x: number) => Math.min(width - EDGE_X, Math.max(EDGE_X, x));
@@ -210,36 +226,29 @@ export function buildEchoField(
    * 顺序是有讲究的：小卡要让位，而它得躲开所有光球和命运，不只是排在它前面
    * 那几个。让位见 `nudgeClear`。
    */
-  stories.forEach((story, i) => {
-    const col = i % COLS;
-    const row = Math.floor(i / COLS);
-    orbs.push({
-      story,
-      x: clampX(col * CELL_W + CELL_W / 2 + jitter(story.id, 1, CELL_W * 0.34)),
-      // 光球压在格子偏下，上方那一格半留给汇聚进它的节点（会探进上一行的
-      // 地盘，正是设计稿那种交织感）。
+  const placedHeads = heads.map(({ ref, col, t }) => {
+    const id = ref.kind === "echo" ? ref.story.id : ref.seed.id;
+    return {
+      ref,
+      x: clampX(
+        col * CELL_W + CELL_W / 2 + jitter(id, 1, CELL_W * HEAD_SPREAD_X),
+      ),
+      // 落点压在格距偏下，上方那一格半留给汇聚进来的小卡（会探进上一枚的地
+      // 盘，正是设计稿那种交织感）。
       y: clampY(
         TOP_PAD +
-          row * CELL_H +
-          CELL_H * 0.72 +
-          jitter(story.id, 2, CELL_H * 0.2),
+          hash01(`col-${col}`, 7) * CELL_H * COL_STAGGER +
+          t * span +
+          jitter(id, 2, CELL_H * HEAD_SPREAD_Y),
       ),
-    });
+    };
   });
+  relaxHeads(placedHeads, clampX, clampY);
 
-  // 命运按 `layoutLane` 算好的列/行落位：同一条链在同一列里自上而下，越靠下
-  // 越新 —— 和回响簇同一个约定（画布向下就是时间向前）。
-  lane.slots.forEach(({ seed, col, row }) => {
-    destinyPoints.push({
-      seed,
-      x: clampX(
-        clusterW + col * LANE_COL_W + LANE_COL_W / 2 + jitter(seed.id, 5, 54),
-      ),
-      y: clampY(
-        LANE_TOP + row * LANE_ROW_H + LANE_ROW_H / 2 + jitter(seed.id, 6, 40),
-      ),
-    });
-  });
+  for (const { ref, x, y } of placedHeads) {
+    if (ref.kind === "echo") orbs.push({ story: ref.story, x, y });
+    else destinyPoints.push({ seed: ref.seed, x, y });
+  }
 
   const taken: Rect[] = [
     ...orbs.map((o) => ({
@@ -257,9 +266,15 @@ export function buildEchoField(
     nodes.push(placed);
   };
 
-  // 汇进回响的小卡。让位幅度压在两格以内 —— 它得看着还是这一簇的。
-  stories.forEach((story, i) => {
-    const orb = orbs[i];
+  /*
+   * 汇进回响的小卡。让位幅度压在四格以内 —— 它得看着还是这一簇的。
+   *
+   * 原先是两格。回响和命运混排之后，一枚回响的上方常常就是另一枚的小卡或那
+   * 枚命运的标题胶囊，两格找不开的情形多了几处；四格约 170px，还在「同一
+   * 簇」读得出来的范围内。
+   */
+  orbs.forEach(({ story, x: ox, y: oy }, i) => {
+    const orb = { x: ox, y: oy };
     const template = NODE_TEMPLATES[i % NODE_TEMPLATES.length];
     story.nodes.slice(0, template.length).forEach((seed, ni) => {
       const slot = template[ni];
@@ -278,7 +293,7 @@ export function buildEchoField(
           ),
           scale: slot.scale,
         },
-        2,
+        4,
       );
     });
   });
@@ -293,18 +308,18 @@ export function buildEchoField(
           kind: n.kind,
           speakers: n.kind === "event" ? n.speakers : [],
           text: n.text,
-          x: clampX(x + LANE_NODE_DX + jitter(seed.id, 30 + ni, 34)),
-          y: clampY(y + LANE_NODE_DY[ni] + jitter(seed.id, 40 + ni, 22)),
+          x: clampX(x + DESTINY_NODE_DX + jitter(seed.id, 30 + ni, 34)),
+          y: clampY(y + DESTINY_NODE_DY[ni] + jitter(seed.id, 40 + ni, 22)),
           scale: ni === 0 ? SCALE_MID : SCALE_FAR,
         },
-        2,
+        3,
       );
     });
   });
 
   /*
-   * 散件最后铺，铺在簇与簇的缝里：列错开半格，行错开到格子上沿，只占簇那
-   * 片地方（`clusterW`），右边命运那几列不掺进来。
+   * 散件最后铺，铺在簇与簇的缝里：列比头节点多一列，于是每一列都落在两列头
+   * 节点中间，横向铺满整张画布。
    *
    * 放最后、也给最大的让位幅度：它们是这张图里唯一没有归属的一批（不属于
    * 任何一枚回响或命运），挪远一点不损失任何意思，谁该让谁很清楚。
@@ -333,10 +348,12 @@ export function buildEchoField(
         text: seed.text,
         brewing: seed.brewing,
         nudges: seed.nudges,
-        x: clampX(col * (clusterW / looseCols) + jitter(key, 3, 90 * ZOOM)),
+        x: clampX(
+          (col + 0.5) * (width / looseCols) + jitter(key, 3, 90 * ZOOM),
+        ),
         y: clampY(
           EDGE_Y +
-            ((row + 0.4) / looseRows) * (clusterH - EDGE_Y) +
+            ((row + 0.4) / looseRows) * (contentHeight - EDGE_Y) +
             jitter(key, 4, CELL_H * 0.45),
         ),
         scale: looseScales[i % looseScales.length],
@@ -355,8 +372,43 @@ export function buildEchoField(
   };
 }
 
-/** 命运那片区域的顶部留白，和簇那边错开半格，免得两边横成一排。 */
-const LANE_TOP = Math.round(TOP_PAD * 0.55);
+/**
+ * 把挨太近的头节点互相推开。
+ *
+ * 判距用椭圆而不是圆：光球带光晕、命运下面还挂着标题胶囊，横向占的地方比竖
+ * 向多得多，按圆算会把竖着叠在一起的两枚判成「够远」。
+ *
+ * 跑固定四遍，每遍两两互推一半的差额 —— 不追求收敛到绝对不重叠（那会把边上
+ * 的几枚一路挤到画布外），只要把明显撞上的那几处松开。遍数和顺序都写死，所以
+ * 结果是确定性的：星图每次打开长得一样。
+ */
+function relaxHeads(
+  pts: { x: number; y: number }[],
+  clampX: (x: number) => number,
+  clampY: (y: number) => number,
+): void {
+  const RX = 152;
+  const RY = 98;
+  for (let pass = 0; pass < 4; pass += 1) {
+    for (let i = 0; i < pts.length; i += 1) {
+      for (let j = i + 1; j < pts.length; j += 1) {
+        const a = pts[i];
+        const b = pts[j];
+        const dx = (b.x - a.x) / RX;
+        const dy = (b.y - a.y) / RY;
+        const d = Math.hypot(dx, dy);
+        if (d === 0 || d >= 1) continue;
+        const push = (1 - d) / 2;
+        const ux = (dx / d) * push * RX;
+        const uy = (dy / d) * push * RY;
+        a.x = clampX(a.x - ux);
+        a.y = clampY(a.y - uy);
+        b.x = clampX(b.x + ux);
+        b.y = clampY(b.y + uy);
+      }
+    }
+  }
+}
 
 /* ─────────────────────── 让位（散件躲开已落好的东西） ─────────────────────── */
 
@@ -446,71 +498,112 @@ function ring(r: number): readonly (readonly [number, number])[] {
   return out;
 }
 
+/** 格子里放的东西：一枚回响，或一枚命运。 */
+type HeadRef =
+  | { kind: "echo"; story: EchoFieldEntry }
+  | { kind: "destiny"; seed: DestinyChainSeed };
+
 /**
- * 把命运分链、分列。
+ * 把回响和命运排进同一套格子。
  *
- * 链是顺着 `causeIds` 里指向另一枚命运的那条边串出来的：没有命运上游的是链
- * 头（它的因可能是事件或回响，那不影响它在这边是一条链的开头）。
+ * 顺序由因果定（`orderByCause`）：谁的因排在谁前面。落位按列优先（先填满一列
+ * 再换下一列），于是「因在前」在画布上就等于「因在上、或在左边那一列」—— 向
+ * 下、向右就是时间向前，整张图共用这一个约定。按行优先就得反过来读，而链是竖
+ * 着长的。
  *
- * 分列用「谁短谁先补」：列数封顶在 `LANE_COLS`，长链先占列，剩下的短链补到
- * 当前最空的那一列去。这样最长的那条主线一定独占一列从头排到尾，短链不会把
- * 它挤断。同列的两条链之间空出一整行 —— 挨着摆会被读成一条链。
+ * 每列的枚数尽量匀（`base` / `extra`），短的那列把间距摊开占满同样的高度：不
+ * 然最后一列到半截就没了，右下角空一大片。
  */
-function layoutLane(destinies: readonly DestinyChainSeed[]): {
-  cols: number;
-  height: number;
-  slots: readonly { seed: DestinyChainSeed; col: number; row: number }[];
+function layoutHeads(
+  stories: readonly EchoFieldEntry[],
+  destinies: readonly DestinyChainSeed[],
+): {
+  rows: number;
+  heads: readonly { ref: HeadRef; col: number; t: number }[];
 } {
-  if (destinies.length === 0) return { cols: 0, height: 0, slots: [] };
+  const seq = orderByCause(stories, destinies);
+  const rows = Math.max(1, Math.ceil(seq.length / COLS));
 
-  const byId = new Map(destinies.map((d) => [d.id, d]));
-  const parentOf = new Map<string, string>();
-  for (const d of destinies) {
-    const parent = (d.causeIds ?? []).find((id) => byId.has(id));
-    if (parent) parentOf.set(d.id, parent);
-  }
-
-  // 每枚只进一条链：多出来的分支自己当链头，免得同一枚被排两次。
-  const used = new Set<string>();
-  const chains: DestinyChainSeed[][] = [];
-  for (const d of destinies) {
-    if (parentOf.has(d.id) || used.has(d.id)) continue;
-    const chain: DestinyChainSeed[] = [];
-    let cur: DestinyChainSeed | undefined = d;
-    while (cur && !used.has(cur.id)) {
-      used.add(cur.id);
-      chain.push(cur);
-      cur = destinies.find(
-        (n) => parentOf.get(n.id) === cur!.id && !used.has(n.id),
-      );
-    }
-    chains.push(chain);
-  }
-  // 分支链（父在别的链上）也得排：按原顺序补在后面。
-  for (const d of destinies) {
-    if (!used.has(d.id)) {
-      used.add(d.id);
-      chains.push([d]);
+  const base = Math.floor(seq.length / COLS);
+  const extra = seq.length % COLS;
+  const heads: { ref: HeadRef; col: number; t: number }[] = [];
+  let i = 0;
+  for (let col = 0; col < COLS; col += 1) {
+    const count = base + (col < extra ? 1 : 0);
+    for (let k = 0; k < count && i < seq.length; k += 1, i += 1) {
+      heads.push({ ref: seq[i], col, t: (k + 0.62) / Math.max(1, count) });
     }
   }
+  return { rows, heads };
+}
 
-  chains.sort((a, b) => b.length - a.length);
+/**
+ * 把回响和命运排成一串：因在前，果在后，两种交替出现。
+ *
+ * 三种因果边一起进图（回响→回响、回响/命运→命运、命运→回响），拓扑排一遍。这
+ * 一步同时解决两件原本打架的事：
+ *
+ *   • 混排。命运不再独占半张画布，而拓扑序天然把两种搅在一起 —— 一枚命运的因
+ *     常常是回响，果又是另一枚回响，排出来就是交替的。
+ *   • 因果方向。落位按列优先，「排在前」= 在上方或左边一列，所以每根连线都是
+ *     从上往下、从左往右走，一眼看得出谁牵出了谁。
+ *
+ * 同时就绪的挑谁：按配额，回响和命运哪种落后取哪种（`wantEcho`），同种里保持
+ * 原顺序。配额是让两种真的隔着出现 —— 光按就绪顺序取，十几枚回响会先扎堆。
+ *
+ * 万一数据出现环（约定上不该有：两边都只许往更早的条目指），就退化成「剩下的
+ * 按原顺序排」，不死循环。
+ */
+function orderByCause(
+  stories: readonly EchoFieldEntry[],
+  destinies: readonly DestinyChainSeed[],
+): readonly HeadRef[] {
+  const refs = new Map<string, HeadRef>();
+  for (const story of stories) refs.set(story.id, { kind: "echo", story });
+  for (const seed of destinies) refs.set(seed.id, { kind: "destiny", seed });
 
-  const cols = Math.min(LANE_COLS, chains.length);
-  const filled = new Array<number>(cols).fill(0);
-  const slots: { seed: DestinyChainSeed; col: number; row: number }[] = [];
-
-  for (const chain of chains) {
-    let col = 0;
-    for (let i = 1; i < cols; i += 1) if (filled[i] < filled[col]) col = i;
-    chain.forEach((seed, i) => {
-      slots.push({ seed, col, row: filled[col] + i });
-    });
-    filled[col] += chain.length + LANE_CHAIN_GAP;
+  const causesOf = new Map<string, string[]>();
+  const known = (id: string) => refs.has(id);
+  const causes = (id: string) => {
+    const list = causesOf.get(id);
+    if (list) return list;
+    const fresh: string[] = [];
+    causesOf.set(id, fresh);
+    return fresh;
+  };
+  for (const story of stories) {
+    causes(story.id).push(...(story.causeEchoIds ?? []).filter(known));
+  }
+  for (const seed of destinies) {
+    causes(seed.id).push(...(seed.causeIds ?? []).filter(known));
+    // 命运声明的是「我促成了哪些回响」，方向反过来记一次。
+    for (const echoId of seed.effectEchoIds ?? []) {
+      if (known(echoId)) causes(echoId).push(seed.id);
+    }
   }
 
-  const rows = Math.max(...filled) - LANE_CHAIN_GAP;
-  return { cols, height: LANE_TOP + rows * LANE_ROW_H, slots };
+  const left = new Set(refs.keys());
+  const out: HeadRef[] = [];
+  let echoes = 0;
+  let taken = 0;
+  while (left.size > 0) {
+    const ready = [...left].filter((id) =>
+      causes(id).every((c) => !left.has(c)),
+    );
+    const pool = ready.length > 0 ? ready : [...left];
+    const wantEcho =
+      (echoes + 0.5) / stories.length <=
+      (taken - echoes + 0.5) / Math.max(1, destinies.length);
+    const pick =
+      pool.find((id) => (refs.get(id)!.kind === "echo") === wantEcho) ?? pool[0];
+
+    const ref = refs.get(pick)!;
+    out.push(ref);
+    if (ref.kind === "echo") echoes += 1;
+    taken += 1;
+    left.delete(pick);
+  }
+  return out;
 }
 
 /**

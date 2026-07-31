@@ -10,13 +10,13 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import { usePhoneOverlayRoot } from "@/components/mobile/phone-frame";
 import { StatusBar } from "@/components/mobile/status-bar";
 import { ECHO_ORB_CORE, EchoOrb } from "@/components/tilia/echo-orb";
 import { SpeakerStack, speakerName } from "@/components/tilia/tilia-avatar";
+import { WorldRuntimeLog } from "@/components/tilia/world-runtime-log";
 import type { EchoFieldEntry } from "@/lib/tilia/echo-archive";
 import type { DestinyChainSeed } from "@/lib/tilia/destiny-archive";
 import {
@@ -69,6 +69,18 @@ const ACCENT = "#ffa16b";
 const DESTINY_ACCENT = "#5aa8ee";
 const DESTINED_ACCENT = "#ff8874";
 
+/**
+ * 连线的调子：终端绿（磷光屏那种）。
+ *
+ * 和节点分色是有用的，不只是好看：这一屏上有三种暖冷不同的节点（回响的暖橙、
+ * 潜在命运的蓝、注定命运的粉橙），线要是跟着谁的颜色走，就会被读成"这条线属
+ * 于那一头"。绿在这三者之外，于是线读作线本身 —— 关系，而不是某一枚的附属。
+ *
+ * 满图七十多条线在静息态只有一成六的不透明度，这种高饱和的绿正好还看得见；
+ * 换个灰绿会直接消失在深蓝底上。
+ */
+const LINE_ACCENT = "#3bff8f";
+
 /** 半层高度的兜底值（设计稿：文案区 181 + 底部留白 16）。实测到就用实测的
  *  —— 挂了上游回响的那几条会高一截，取景避让得跟着走。 */
 const SHEET_H = 197;
@@ -105,6 +117,12 @@ const DIM_ORB_ASIDE = 0.3;
  * 作还在发生。仍然压在链条（100%）之下，选中那一簇照样是最亮的。
  */
 const LOOSE_NODE = 0.6;
+/**
+ * 静息态那张网的不透明度。压得比最暗的节点还低：它要读作「底下的纹路」，一旦
+ * 和节点争亮度，满屏七十多条线就成了一团毛线，谁是果就看不出来了。
+ */
+const REST_LINE = 0.16;
+const REST_LINE_ASIDE = 0.07;
 
 /**
  * 上游链条按代际衰减：直接的因几乎和选中的果一样亮，越往回追越淡，追到
@@ -120,6 +138,46 @@ const CHAIN_LINE = [1, 1, 0.6, 0.35] as const;
 /** 超过这个位移就算拖动，抬手时不再当成点选。 */
 const DRAG_SLOP = 8;
 
+/**
+ * 缩放区间。
+ *
+ * 下界不是定值，是「整张图恰好装进这一屏」算出来的（`fitScale`）—— 缩得比
+ * 全局更小没有意义，只会在四周添黑边。
+ *
+ * 上界从 1.3 收到 0.8：放到原尺寸那一档时一屏只剩三四枚，拖起来找不着自己在哪
+ * 一片 —— 这张图的看头是「谁牵着谁」，凑得太近就只剩一枚孤零零的卡。0.8 这一
+ * 档字还读得清（远高于 `LABEL_SCALE`），一屏又能多装四分之一。
+ *
+ * `READ_SCALE` 跟着等于上界：双击在「全局 ↔ 读得清」两档之间切，而「读得清」
+ * 现在就是能放到的最大。两个值必须一致 —— 双击那边靠「当前倍率是不是已经到
+ * READ_SCALE」判方向，要是 READ_SCALE 高于上界，放到顶之后再双击只会原地不
+ * 动，回不到全局。
+ */
+const MAX_SCALE = 0.8;
+const READ_SCALE = MAX_SCALE;
+
+/**
+ * 低于这个倍率就不画字了（`labels`）。
+ *
+ * 全局视图下 11px 的字只剩两个多像素，画出来是一片灰糊 —— 那不叫"看得见全
+ * 局"，叫看不清任何东西。收掉字只留蝶形、光球、光点和线，整屏就成了一张星
+ * 图：这个尺度上要回答的是"有多少事、怎么牵着"，具体是哪件事，凑近了再说。
+ */
+const LABEL_SCALE = 0.55;
+
+/**
+ * 缩小时命中区的补偿上限。
+ *
+ * 全局视图下一枚蝶形只有十来个屏幕像素宽，照着画的命中区根本点不中。命中区
+ * 于是按 1/scale 反向放大（视觉不变），让它在屏幕上保持大致同一个尺寸。补偿
+ * 有上限：放得太开，隔壁那枚的命中区会先把这一下接走。
+ */
+const HIT_MAX = 2;
+
+/** 全局视图的留白：左右各留一点，顶部让开关闭按钮那一行。 */
+const FIT_PAD_X = 14;
+const FIT_PAD_Y = 28;
+
 /** 星图整体的放大倍数，和布局共用一个数（那边管格距和小卡）。 */
 const ZOOM = FIELD_ZOOM;
 
@@ -129,7 +187,7 @@ const ORB_HIT = Math.round(64 * ZOOM);
 /**
  * 命运那枚标记的视觉尺寸：蝶形核心 + 底下那枚标题胶囊。
  *
- * 核心取和回响光球一样的 44（同样乘 ZOOM）：这一屏叫「世界命运」，命运和回响
+ * 核心取和回响光球一样的 44（同样乘 ZOOM）：这一屏叫「世界背面」，命运和回响
  * 是并列的两种东西，谁小一号就成了谁的注脚。
  */
 const DESTINY_CORE = Math.round(44 * ZOOM);
@@ -164,7 +222,7 @@ type ChainPoint = {
 };
 
 /**
- * 全屏世界命运星图 —— 设计稿 `3406:9892`（默认）/ `3407:10459`（选中）。
+ * 全屏世界背面星图 —— 设计稿 `3406:9892`（默认）/ `3407:10459`（选中）。
  *
  * 从顶栏右上那枚按钮翻进来。动态页答的是「世界发生了什么」，这里答的是
  * 「那些事怎么长成了一条回响」：满图散着历史上所有回响，以及汇聚进它们的
@@ -181,9 +239,9 @@ type ChainPoint = {
  * `buildEchoField`，画布尺寸跟着内容量长）。把内容压进一屏才是失真 ——
  * 小卡是文字撑开的，缩放只会让它们和弧线一起变形。
  *
- * 进来先落在最近那枚回响上：满图弱化时「有关系」这件事只是隐约的，得先
- * 亮一簇给人看清「一条回响是由什么汇聚成的」，其余的自然就懂了。点空白
- * 处或再点它一次就取消选中，整片回到弱化态 —— 那才是通览的样子。
+ * 进来什么都不选，全图的因果线一起弱弱地连着：先给人一张网，说明这些事
+ * 本来就互相牵着；具体是怎么牵的，等人自己挑一枚。点空白处或再点它一次
+ * 就取消选中，整片回到这个静息态 —— 那才是通览的样子。
  *
  * 选中时拉出弧线：光点从事件那头往回响里流，越靠近越亮（连线是从事件端
  * 透明到回响端满色的渐变），一圈圈循环，能量在往那颗球里汇。
@@ -320,6 +378,37 @@ export function EchoFieldScreen({
   );
 
   /**
+   * 静息态的全部连线 —— 图上每一条因果都连着，只是很淡。
+   *
+   * 一进来什么都没选，这张网本身就是要说的话：世界里的事早就互相牵着，不是
+   * 你点了哪一枚才临时长出关系来。所以线不是选中时才出现的装饰，它一直在，
+   * 选中只是把其中一条挑亮。
+   *
+   * 画法和高亮那套分开（见 `RestLines`）：七十多条线要是每条都套上光晕和流
+   * 光，这一屏会卡；淡度也得压住，浓一点整屏就成了一团毛线。
+   */
+  const restEdges = useMemo((): readonly FlowEdge[] => {
+    const out: FlowEdge[] = [];
+    for (const n of field.nodes) {
+      if (!n.ownerId) continue;
+      const to = pointById.get(n.ownerId);
+      if (to) out.push({ id: `rest-${n.id}`, from: n, to, strength: 1 });
+    }
+    // 同一段因果可能被两头各写一次（A 报了它的因，B 报了它的果），去重。
+    const seen = new Set<string>();
+    for (const p of pointById.values()) {
+      for (const c of p.causeIds) {
+        const from = pointById.get(c);
+        const id = `rest-${c}-${p.id}`;
+        if (!from || seen.has(id)) continue;
+        seen.add(id);
+        out.push({ id, from, to: p, strength: 1 });
+      }
+    }
+    return out;
+  }, [field.nodes, pointById]);
+
+  /**
    * 事件/时机汇进选中那枚，加上链条上一段段的回响/命运。
    *
    * 只画进来的，不画出去的：选中那一枚在这一屏上就是当下这个果，能量往它那
@@ -353,27 +442,12 @@ export function EchoFieldScreen({
     [chain.depth, selectedId],
   );
 
-  /*
-   * 默认选中的那枚：两条序列都是时间正序，最后一枚就是最近的。命运优先 ——
-   * 主线的末端是这张图上最新的东西，而且它上游最长，一进来就能看见整条链
-   * 怎么一节一节接过来的。没有命运才退回最近那条回响。
-   */
-  const latest = useMemo(() => {
-    const d = field.destinies[field.destinies.length - 1];
-    if (d) return pointById.get(d.seed.id) ?? null;
-    const o = field.orbs[field.orbs.length - 1];
-    return o ? pointById.get(o.story.id) ?? null : null;
-  }, [field.destinies, field.orbs, pointById]);
-  const latestNodes = useMemo(
-    () => (latest ? field.nodes.filter((n) => n.ownerId === latest.id) : []),
-    [field.nodes, latest],
-  );
-
-  /* ── 取景：一个可拖的窗口，外加选中时的自动取景 ── */
+  /* ── 取景：一个可拖可缩的窗口，外加选中时的自动取景 ── */
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [viewport, setViewport] = useState({ w: 375, h: 812 });
   const [pan, setPan] = useState<Pan>({ x: 0, y: 0 });
+  const [scale, setScale] = useState(READ_SCALE);
   const [animatePan, setAnimatePan] = useState(true);
   const [hinted, setHinted] = useState(false);
   /**
@@ -389,13 +463,85 @@ export function EchoFieldScreen({
       ? destinySheetH
       : echoSheetH;
 
-  const clampPan = useCallback(
-    (p: Pan): Pan => ({
-      x: clamp(p.x, Math.min(0, viewport.w - field.width), 0),
-      y: clamp(p.y, Math.min(0, viewport.h - field.height), 0),
-    }),
-    [viewport.w, viewport.h, field.width, field.height],
+  /**
+   * 整张图恰好装进这一屏的倍率 —— 也就是「全局」，同时是缩放的下界。
+   *
+   * 按 `contentHeight` 算，不按 `height`：底下那段 `BOTTOM_RESERVE` 是留给
+   * 「选中后把簇抬到半层之上」的行程，是空的，把它也算进取景只会让内容白白
+   * 缩小一圈。
+   */
+  const fitScale = useMemo(
+    () =>
+      clamp(
+        Math.min(
+          (viewport.w - FIT_PAD_X * 2) / field.width,
+          (viewport.h - SAFE_TOP - FIT_PAD_Y) / field.contentHeight,
+        ),
+        0.1,
+        READ_SCALE,
+      ),
+    [viewport.w, viewport.h, field.width, field.contentHeight],
   );
+
+  /**
+   * 拖动边界。缩放之后画布在屏幕上占 `field.width * s`，所以边界得跟着倍率
+   * 走。
+   *
+   * 上下两头不对称，因为画布底下那段 `BOTTOM_RESERVE` 是空的：
+   *
+   * - 往上能拖多远按整张画布算（含那段留白）—— 选中最下面一行时，簇要靠这段
+   *   行程抬到半层之上。
+   * - 往下能拖多远按有内容的那部分算 —— 否则内容比屏幕小的时候（全局视图就是
+   *   这样），那段空留白会占掉行程，图连居中都摆不到。
+   *
+   * 内容比屏幕小时也不锁死在正中：区间仍是个区间，人挪得动，半层避让也才有地
+   * 方施展。
+   */
+  const clampPanAt = useCallback(
+    (p: Pan, s: number): Pan => {
+      const slackX = viewport.w - field.width * s;
+      return {
+        x: clamp(p.x, Math.min(0, slackX), Math.max(0, slackX)),
+        y: clamp(
+          p.y,
+          Math.min(0, viewport.h - field.height * s),
+          Math.max(0, viewport.h - field.contentHeight * s),
+        ),
+      };
+    },
+    [viewport.w, viewport.h, field.width, field.height, field.contentHeight],
+  );
+
+  /**
+   * 全局视图的取景：内容摆在「关闭按钮那行之下」这块可读区的正中。
+   *
+   * 竖向按 `contentHeight` 居中，不按画布总高 —— 底下那段留白算进来的话，内容
+   * 会整体上移，第一行正好钻到状态栏底下。
+   */
+  const fitPan = useCallback(
+    (s: number): Pan =>
+      clampPanAt(
+        {
+          x: (viewport.w - field.width * s) / 2,
+          y:
+            SAFE_TOP +
+            (viewport.h - SAFE_TOP - field.contentHeight * s) / 2,
+        },
+        s,
+      ),
+    [clampPanAt, viewport.w, viewport.h, field.width, field.contentHeight],
+  );
+
+  /*
+   * 手势里要按「当下的」取景算锚点，而 state 在一次事件里可能还差一帧才提交。
+   * 提交后同步一份镜像，手势的几何一律读它。
+   */
+  const panRef = useRef(pan);
+  const scaleRef = useRef(scale);
+  useEffect(() => {
+    panRef.current = pan;
+    scaleRef.current = scale;
+  }, [pan, scale]);
 
   // 手机框的高度是 min(100dvh, 812)，不是定值；避让和拖动边界都得按实测算。
   useLayoutEffect(() => {
@@ -410,12 +556,11 @@ export function EchoFieldScreen({
   }, [mounted]);
 
   /*
-   * 开场：选中最近那枚，取景直接落在它那一簇上（不做动画 —— 一进来就镜头
-   * 飞一段像在演，而且人还没看清就被移走了）。它两侧、上下都还留着别的簇，
-   * 「图比这一屏大」这件事照样说得出来。
+   * 开场：全局。整张图缩到装得下，摆在正中，什么都不选，不做动画。
    *
-   * 避让要按它自己那张半层的高度算：这一刻 `selectedId` 还没落到 state 里，
-   * `sheetH` 报的仍是回响那张，直接用会先落在偏下的位置、下一帧再被顶上去。
+   * 先给全貌是有取舍的 —— 这个尺度上字是读不了的（`labels` 会把它们收掉）。
+   * 但这一屏第一句要说的话是「这么多事互相牵着」，那是只有全貌才说得出来
+   * 的；具体哪一件，双击或双指撑开再看。
    */
   const openedRef = useRef(false);
   useEffect(() => {
@@ -426,51 +571,67 @@ export function EchoFieldScreen({
     if (openedRef.current) return;
     openedRef.current = true;
     setAnimatePan(false);
-    setSelectedId(latest?.id ?? null);
-    setPan(
-      clampPan(
-        latest
-          ? panForOpen(
-              latest,
-              latestNodes,
-              viewport,
-              latest.isDestiny ? destinySheetH : echoSheetH,
-            )
-          : {
-              x: (viewport.w - field.width) / 2,
-              y: (viewport.h - field.contentHeight) / 2,
-            },
-      ),
-    );
-  }, [
-    open,
-    clampPan,
-    latest,
-    latestNodes,
-    viewport,
-    destinySheetH,
-    echoSheetH,
-    field.width,
-    field.contentHeight,
-  ]);
+    setScale(fitScale);
+    setPan(fitPan(fitScale));
+  }, [open, fitScale, fitPan]);
+
+  // 屏幕尺寸变了（转屏、窗口拉动）全局那一档也跟着变，别让倍率掉到界外。
+  useEffect(() => {
+    setScale((s) => clamp(s, fitScale, MAX_SCALE));
+  }, [fitScale]);
 
   useEffect(() => {
     if (!selectedPoint) return;
     setAnimatePan(true);
     setPan((prev) =>
-      clampPan(
-        panForCluster(selectedPoint, selectedNodes, viewport, prev, sheetH),
+      clampPanAt(
+        panForCluster(selectedPoint, selectedNodes, viewport, prev, sheetH, scale),
+        scale,
       ),
     );
-  }, [selectedPoint, selectedNodes, viewport, sheetH, clampPan]);
+  }, [selectedPoint, selectedNodes, viewport, sheetH, scale, clampPanAt]);
 
   // 散件同理：点开的那张卡也不能被自己的半层压住。
   useEffect(() => {
     if (!picked) return;
     setAnimatePan(true);
-    setPan((prev) => clampPan(panForNode(picked, viewport, prev, sheetH)));
-  }, [picked, viewport, sheetH, clampPan]);
+    setPan((prev) =>
+      clampPanAt(panForNode(picked, viewport, prev, sheetH, scale), scale),
+    );
+  }, [picked, viewport, sheetH, scale, clampPanAt]);
 
+  /** 屏幕坐标 → 取景框内坐标。缩放锚点要按这个算，clientX 里含着手机框的偏移。 */
+  const localPoint = useCallback((cx: number, cy: number): Point => {
+    const r = viewportRef.current?.getBoundingClientRect();
+    return { x: cx - (r?.left ?? 0), y: cy - (r?.top ?? 0) };
+  }, []);
+
+  /**
+   * 定点缩放：把某个屏幕位置底下的那一处画布钉住不动，倍率绕着它变。
+   *
+   * 不这么做的话（比如绕画布中心缩放），人捏着的那一处会往边上跑 —— 手感上
+   * 像图自己在挣脱手指。
+   */
+  const zoomTo = useCallback(
+    (target: number, at: Point) => {
+      const prev = scaleRef.current;
+      const next = clamp(target, fitScale, MAX_SCALE);
+      if (next === prev) return;
+      const p = panRef.current;
+      const canvas = { x: (at.x - p.x) / prev, y: (at.y - p.y) / prev };
+      setScale(next);
+      setPan(
+        clampPanAt(
+          { x: at.x - canvas.x * next, y: at.y - canvas.y * next },
+          next,
+        ),
+      );
+    },
+    [fitScale, clampPanAt],
+  );
+
+  /** 场上按着的手指（屏幕坐标）。两根就是捏合，一根才是拖。 */
+  const pointersRef = useRef(new Map<number, Point>());
   const dragRef = useRef<{
     id: number;
     sx: number;
@@ -478,30 +639,97 @@ export function EchoFieldScreen({
     from: Pan;
     moved: boolean;
   } | null>(null);
-  /** 抬手后还留着，供紧随其后的 click 判断这次到底是点还是拖。 */
-  const movedRef = useRef(false);
+  const pinchRef = useRef<{
+    ids: [number, number];
+    startDist: number;
+    startScale: number;
+    /** 捏合中点底下那一处画布，整个过程钉在中点上。 */
+    anchor: Point;
+  } | null>(null);
+  /**
+   * 抬手后还留着：告诉紧随其后的 click 这一下不作数。拖动和双击的第二下都
+   * 会置上 —— 双击是为了别把刚点亮的那一枚又点灭。
+   */
+  const swallowClickRef = useRef(false);
+  /** 上一次单点抬手，用来认双击。 */
+  const lastTapRef = useRef<{ t: number; x: number; y: number } | null>(null);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 && e.pointerType === "mouse") return;
+    const pts = pointersRef.current;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    setAnimatePan(false);
+
+    if (pts.size >= 2) {
+      // 第二根手指落下：拖动作废，转成捏合。
+      dragRef.current = null;
+      swallowClickRef.current = true;
+      setHinted(true);
+      const [[ia, ca], [ib, cb]] = [...pts.entries()].slice(0, 2);
+      const a = localPoint(ca.x, ca.y);
+      const b = localPoint(cb.x, cb.y);
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const s = scaleRef.current;
+      const p = panRef.current;
+      pinchRef.current = {
+        ids: [ia, ib],
+        startDist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+        startScale: s,
+        anchor: { x: (mid.x - p.x) / s, y: (mid.y - p.y) / s },
+      };
+      return;
+    }
+
     dragRef.current = {
       id: e.pointerId,
       sx: e.clientX,
       sy: e.clientY,
-      from: pan,
+      from: panRef.current,
       moved: false,
     };
-    movedRef.current = false;
-    setAnimatePan(false);
+    swallowClickRef.current = false;
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const pts = pointersRef.current;
+    if (pts.has(e.pointerId)) {
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    const pinch = pinchRef.current;
+    if (pinch) {
+      const ca = pts.get(pinch.ids[0]);
+      const cb = pts.get(pinch.ids[1]);
+      if (!ca || !cb) return;
+      const a = localPoint(ca.x, ca.y);
+      const b = localPoint(cb.x, cb.y);
+      const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+      const next = clamp(
+        (pinch.startScale * dist) / pinch.startDist,
+        fitScale,
+        MAX_SCALE,
+      );
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      setScale(next);
+      setPan(
+        clampPanAt(
+          {
+            x: mid.x - pinch.anchor.x * next,
+            y: mid.y - pinch.anchor.y * next,
+          },
+          next,
+        ),
+      );
+      return;
+    }
+
     const d = dragRef.current;
     if (!d || d.id !== e.pointerId) return;
     const dx = e.clientX - d.sx;
     const dy = e.clientY - d.sy;
     if (!d.moved && Math.hypot(dx, dy) > DRAG_SLOP) {
       d.moved = true;
-      movedRef.current = true;
+      swallowClickRef.current = true;
       setHinted(true);
       /*
        * 到这一刻才抓指针，不是按下就抓：抓住之后浏览器会把 pointerup 连
@@ -516,16 +744,57 @@ export function EchoFieldScreen({
       }
     }
     if (!d.moved) return;
-    setPan(clampPan({ x: d.from.x + dx, y: d.from.y + dy }));
+    setPan(clampPanAt({ x: d.from.x + dx, y: d.from.y + dy }, scaleRef.current));
   };
 
   const endDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const d = dragRef.current;
-    if (!d || d.id !== e.pointerId) return;
-    dragRef.current = null;
+    const pts = pointersRef.current;
+    pts.delete(e.pointerId);
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
+
+    if (pinchRef.current) {
+      // 松到只剩一根：接着当拖动，不然剩那根一动整片图会跳一下。
+      if (pts.size < 2) {
+        pinchRef.current = null;
+        const rest = [...pts.entries()][0];
+        dragRef.current = rest
+          ? {
+              id: rest[0],
+              sx: rest[1].x,
+              sy: rest[1].y,
+              from: panRef.current,
+              moved: true,
+            }
+          : null;
+      }
+      return;
+    }
+
+    const d = dragRef.current;
+    if (!d || d.id !== e.pointerId) return;
+    dragRef.current = null;
+    if (d.moved) return;
+
+    /*
+     * 这一下是点，不是拖 —— 看看是不是双击的第二下。
+     *
+     * 第二下的 click 要掐掉：双击落在一枚命运上时，第一下已经把它点亮了，
+     * 再让第二下过去只会把它点灭，人得到的是「放大了但灭了」。
+     */
+    const p = localPoint(e.clientX, e.clientY);
+    const prev = lastTapRef.current;
+    const t = e.timeStamp;
+    if (prev && t - prev.t < 300 && Math.hypot(p.x - prev.x, p.y - prev.y) < 30) {
+      lastTapRef.current = null;
+      swallowClickRef.current = true;
+      setHinted(true);
+      setAnimatePan(true);
+      zoomTo(scaleRef.current < READ_SCALE - 0.02 ? READ_SCALE : fitScale, p);
+      return;
+    }
+    lastTapRef.current = { t, x: p.x, y: p.y };
   };
 
   /**
@@ -534,17 +803,44 @@ export function EchoFieldScreen({
    * 的 click 前面没有拖动，照样能过。
    */
   const onClickCapture = (e: ReactMouseEvent<HTMLDivElement>) => {
-    if (!movedRef.current) return;
-    movedRef.current = false;
+    if (!swallowClickRef.current) return;
+    swallowClickRef.current = false;
     e.stopPropagation();
     e.preventDefault();
   };
 
-  const onWheel = (e: ReactWheelEvent<HTMLDivElement>) => {
-    setAnimatePan(false);
-    setHinted(true);
-    setPan((prev) => clampPan({ x: prev.x - e.deltaX, y: prev.y - e.deltaY }));
-  };
+  /*
+   * 滚轮：平移；按住 ctrl/⌘ 或触控板捏合（浏览器同样报成 ctrl+wheel）：缩放。
+   *
+   * 用原生监听而不是 React 的 onWheel，为的是 `passive: false` —— 触控板捏合
+   * 默认会去缩整个页面，只有拿得到 preventDefault 才拦得住。
+   */
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el || !mounted) return;
+    const onWheel = (e: WheelEvent) => {
+      setHinted(true);
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        setAnimatePan(false);
+        const factor = Math.exp(-e.deltaY / 180);
+        zoomTo(scaleRef.current * factor, localPoint(e.clientX, e.clientY));
+        return;
+      }
+      setAnimatePan(false);
+      setPan(
+        clampPanAt(
+          {
+            x: panRef.current.x - e.deltaX,
+            y: panRef.current.y - e.deltaY,
+          },
+          scaleRef.current,
+        ),
+      );
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [mounted, zoomTo, clampPanAt, localPoint]);
 
   /* ── 进出场 ── */
 
@@ -590,6 +886,19 @@ export function EchoFieldScreen({
     }
   }, [open]);
 
+  /*
+   * 这个尺度上画不画字、命中区补偿多少。两者都只跟倍率有关，算一次传下去，
+   * 免得每个节点各自判断。
+   */
+  const labels = scale >= LABEL_SCALE;
+  const hitScale = clamp(1 / scale, 1, HIT_MAX);
+  /*
+   * 线宽跟着倍率反向补偿。线是画在画布坐标里的，缩到全局那一档时 0.8px 的线
+   * 只剩四分之一个屏幕像素 —— 而那一档恰恰最需要看清这张网（字都收掉了，剩下
+   * 的就是点和线）。补偿有上限，不然放大时线会粗得抢戏。
+   */
+  const lineWeight = clamp(1 / scale, 1, 3);
+
   const overlayRoot = usePhoneOverlayRoot();
   if (!mounted || !overlayRoot) return null;
 
@@ -598,7 +907,7 @@ export function EchoFieldScreen({
       <section
         role="dialog"
         aria-modal="true"
-        aria-label="世界命运"
+        aria-label="世界背面"
         /*
          * overflow-clip 而不是 -hidden：hidden 会造出一个可被程序滚动的容
          * 器，而画布和半层都远超出这一屏 —— 点中一枚落在框外的光球/散件，
@@ -617,8 +926,10 @@ export function EchoFieldScreen({
         }}
       >
         {/*
-          可拖的取景框。手势挂在这一层而不是各个光球上：从光球上按下去也
-          应该能拖，抬手时再靠位移判断这次是拖还是点（见 movedRef）。
+          可拖可捏的取景框。手势挂在这一层而不是各个光球上：从光球上按下去
+          也应该能拖，抬手时再靠位移判断这次是拖还是点（见
+          `swallowClickRef`）。滚轮/触控板另挂在原生监听里（要
+          `passive: false`）。
         */}
         <div
           ref={viewportRef}
@@ -627,13 +938,16 @@ export function EchoFieldScreen({
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           onClickCapture={onClickCapture}
-          onWheel={onWheel}
           className="absolute inset-0 cursor-grab touch-none overflow-clip active:cursor-grabbing"
         >
           {/*
-            设计稿把地图压到 20% 再盖一层深蓝纱，算下来地图只剩 8% 左右。
-            这里是压在活地图上，所以用等效的两层：黑 87% 承担压暗（模糊也
-            挂在它上面），深蓝 40% 给整片定调。空白处点一下取消选中。
+            压在活地图上的两层：黑 94% 承担压暗（模糊也挂在它上面），上面那层
+            深蓝只剩 18% —— 底几乎是纯黑，蓝只用来去掉纯黑那股死气。空白处点
+            一下取消选中。
+
+            比设计稿更黑是有理由的：那张稿子上没有这么多线。绿线在深蓝底上要
+            靠提亮才看得见，而底一黑，同样的绿就自己浮起来了 —— 星图该有的对
+            比来自底色，不该靠把线画亮换。
           */}
           <button
             type="button"
@@ -643,13 +957,17 @@ export function EchoFieldScreen({
               setSelectedId(null);
               setPickedId(null);
             }}
-            className="absolute inset-0 cursor-[inherit] bg-black/[0.87] backdrop-blur-[10px]"
+            className="absolute inset-0 cursor-[inherit] bg-black/[0.94] backdrop-blur-[10px]"
           />
-          <div className="pointer-events-none absolute inset-0 bg-[#0c1135]/40" />
+          <div className="pointer-events-none absolute inset-0 bg-[#080b1a]/[0.18]" />
 
           {/*
-            星图整片平移：拖动跟手（不过渡），选中避让走缓动。宽高来自
-            布局本身，不跟着容器缩放 —— 小卡是文字撑开的，缩放会变形。
+            星图整片平移 + 缩放：拖动和捏合跟手（不过渡），选中避让和双击
+            走缓动。原点钉在左上角，屏幕位置于是就是「画布坐标 × 倍率 +
+            pan」，避让那套算法按这个折算（见 `scaleBox`）。
+
+            缩的是整片，不是各自 —— 小卡是文字撑开的，逐个缩会各缩各的、
+            连线还接不上原处。
           */}
           <div
             className={`pointer-events-none absolute left-0 top-0 ${
@@ -660,10 +978,21 @@ export function EchoFieldScreen({
             style={{
               width: field.width,
               height: field.height,
-              transform: `translate3d(${pan.x}px, ${pan.y}px, 0)`,
+              transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${scale})`,
+              transformOrigin: "0 0",
             }}
           >
-            <FlowLines edges={flowEdges} field={field} />
+            {/*
+              两层线：底下这层是整张网（一直都在，很淡），上面那层是选中之后
+              被挑亮的那一条。有选中时底层再退一档，让那条链挑得出来。
+            */}
+            <RestLines
+              edges={restEdges}
+              field={field}
+              aside={selectedId !== null || pickedId !== null}
+              weight={lineWeight}
+            />
+            <FlowLines edges={flowEdges} field={field} weight={lineWeight} />
 
             {field.nodes.map((node) => {
               const brewable =
@@ -680,6 +1009,7 @@ export function EchoFieldScreen({
                    * 刻讲的是那一条链，其余「还能推」的事先别抢注意力。
                    */
                   aside={brewable && (selectedId !== null || pickedId !== null)}
+                  labels={labels}
                   onSelect={
                     brewable
                       ? () => {
@@ -700,6 +1030,7 @@ export function EchoFieldScreen({
                 orb={orb}
                 selected={orb.story.id === selectedId}
                 opacity={glowOf(orb.story.id)}
+                hit={hitScale}
                 onSelect={() =>
                   pickPoint(orb.story.id === selectedId ? null : orb.story.id)
                 }
@@ -712,6 +1043,8 @@ export function EchoFieldScreen({
                 destiny={d}
                 selected={d.seed.id === selectedId}
                 opacity={glowOf(d.seed.id)}
+                labels={labels}
+                hit={hitScale}
                 onSelect={() =>
                   pickPoint(d.seed.id === selectedId ? null : d.seed.id)
                 }
@@ -729,8 +1062,9 @@ export function EchoFieldScreen({
         <StatusBar />
 
         {/*
-          两件事都看不出来：画布比屏幕大得多，以及默认亮着的这一簇是可以
-          放下的。拖过一次就不再提 —— 那时候人已经在自己看了。
+          两件事都看不出来：这一屏是可以放大细看的（开场是全局，字都没画），
+          以及这些点是可以挑一枚看的。动过一次就不再提 —— 那时候人已经在自
+          己看了。
         */}
         <div
           className={`pointer-events-none absolute left-[20px] top-[62px] flex flex-col gap-[2px] transition-opacity duration-500 ${
@@ -738,12 +1072,12 @@ export function EchoFieldScreen({
           }`}
         >
           <p className="text-[15px] font-medium leading-[normal] text-white/90">
-            世界命运
+            世界背面
           </p>
           <p className="text-[11px] leading-[normal] text-white/40">
             {selectedId || pickedId
               ? "拖动查看 · 点空白处放下这一枚"
-              : "拖动查看 · 点一枚看它由什么汇聚而成"}
+              : "双击或双指放大 · 点一枚看它由什么汇聚而成"}
           </p>
         </div>
 
@@ -767,6 +1101,12 @@ export function EchoFieldScreen({
             className="size-[20px] max-w-none"
           />
         </button>
+
+        {/*
+          底部那张运转日志：星图给的是结果的形状，它给的是「还在算」。选中一枚
+          时它让位 —— 半层从底部升起来，那时候人读的是具体的一枚。
+        */}
+        <WorldRuntimeLog hidden={selectedId !== null || pickedId !== null} />
 
         <EchoDetailSheet
           story={selectedOrb?.story ?? null}
@@ -864,10 +1204,11 @@ function panForCluster(
   viewport: { w: number; h: number },
   current: Pan,
   sheetH: number,
+  scale: number,
 ): Pan {
   let box = headBox(head);
   for (const n of nodes) box = union(box, nodeBox(n));
-  return panForBox(box, viewport, current, sheetH);
+  return panForBox(scaleBox(box, scale), viewport, current, sheetH);
 }
 
 /**
@@ -898,11 +1239,23 @@ function panForNode(
   viewport: { w: number; h: number },
   current: Pan,
   sheetH: number,
+  scale: number,
 ): Pan {
-  return panForBox(nodeBox(node), viewport, current, sheetH);
+  return panForBox(scaleBox(nodeBox(node), scale), viewport, current, sheetH);
 }
 
 type Box = { left: number; right: number; top: number; bottom: number };
+
+/**
+ * 画布坐标的占位 → 屏幕上的占位。
+ *
+ * 避让算的是「这块地方在屏幕上落在哪」，而画布是缩放着画的（`transform` 里
+ * translate 之后还有 scale），所以得先把盒子按倍率折算过来，之后那套加减
+ * `pan` 的算法才成立。
+ */
+function scaleBox(b: Box, s: number): Box {
+  return { left: b.left * s, right: b.right * s, top: b.top * s, bottom: b.bottom * s };
+}
 
 /** 小卡的占位。 */
 function nodeBox(n: EchoFieldNode): Box {
@@ -943,30 +1296,56 @@ function panForBox(
   return { x, y };
 }
 
+/* ─────────────────────────── 连线 ─────────────────────────── */
+
 /**
- * 开场取景：把默认选中那枚光球摆到可读区正中，再交给 `panForCluster` 兜
- * 一遍边界。
+ * 静息态的那张网：图上每一条因果都连着，一根很淡的细线，没有光晕也不流动。
  *
- * 和后续点选不一样 —— 那时候要尽量不动镜头（人正看着某处），这里还没有
- * 「正看着某处」可言，居中最省解释。
+ * 刻意画得比什么都轻 —— 它的作用是让人看出「这些事本来就互相牵着」，而不是
+ * 让人去读某一条。一旦有东西被选中，它再退一档（`aside`），把注意力让给被挑
+ * 亮的那条链。
+ *
+ * 和 `FlowLines` 分成两个组件，是因为两者的目的不同、代价也不同：那边一条线
+ * 三层描边加一道流光，用在七十多条上会拖垮这一屏；这边一条就是一笔，全画完也
+ * 不过七十多个 path。同理这里不给每条线做渐变 —— 静息态不需要读方向，方向是
+ * 选中之后才要交代的事。
  */
-function panForOpen(
-  head: ChainPoint,
-  nodes: readonly EchoFieldNode[],
-  viewport: { w: number; h: number },
-  sheetH: number,
-): Pan {
-  const midY = (SAFE_TOP + viewport.h - sheetH - SHEET_GAP) / 2;
-  return panForCluster(
-    head,
-    nodes,
-    viewport,
-    { x: viewport.w / 2 - head.x, y: midY - head.y },
-    sheetH,
+function RestLines({
+  edges,
+  field,
+  aside,
+  weight,
+}: {
+  edges: readonly FlowEdge[];
+  field: EchoField;
+  aside: boolean;
+  /** 线宽的反向补偿：缩小时按倍率加粗，屏幕上的分量才不变（见 `lineWeight`）。 */
+  weight: number;
+}) {
+  if (edges.length === 0) return null;
+
+  return (
+    <svg
+      className="absolute left-0 top-0 transition-opacity duration-500 ease-out"
+      width={field.width}
+      height={field.height}
+      viewBox={`0 0 ${field.width} ${field.height}`}
+      opacity={aside ? REST_LINE_ASIDE : REST_LINE}
+      aria-hidden
+    >
+      <g
+        fill="none"
+        stroke={LINE_ACCENT}
+        strokeWidth={0.8 * weight}
+        strokeLinecap="round"
+      >
+        {edges.map((e) => (
+          <path key={e.id} d={arcPath(e.from, e.to)} />
+        ))}
+      </g>
+    </svg>
   );
 }
-
-/* ─────────────────────────── 连线 ─────────────────────────── */
 
 /**
  * 汇聚线。两种上游共用一套画法 —— 事件/时机 → 回响，以及更早的回响 →
@@ -983,9 +1362,12 @@ function panForOpen(
 function FlowLines({
   edges,
   field,
+  weight,
 }: {
   edges: readonly FlowEdge[];
   field: EchoField;
+  /** 同 `RestLines`：线宽和那两层模糊都按倍率补偿，缩小时才不糊成一根发丝。 */
+  weight: number;
 }) {
   if (edges.length === 0) return null;
 
@@ -1006,7 +1388,7 @@ function FlowLines({
           width="200%"
           height="200%"
         >
-          <feGaussianBlur stdDeviation="3.6" />
+          <feGaussianBlur stdDeviation={3.6 * weight} />
         </filter>
         {/* 亮流的两头要化掉，不然又成了一段一段的虚线 */}
         <filter
@@ -1016,7 +1398,7 @@ function FlowLines({
           width="200%"
           height="200%"
         >
-          <feGaussianBlur stdDeviation="1.9" />
+          <feGaussianBlur stdDeviation={1.9 * weight} />
         </filter>
 
         {edges.map((e) => (
@@ -1029,9 +1411,9 @@ function FlowLines({
             x2={e.to.x}
             y2={e.to.y}
           >
-            <stop stopColor={ACCENT} stopOpacity="0" />
-            <stop offset="0.55" stopColor={ACCENT} stopOpacity="0.55" />
-            <stop offset="1" stopColor={ACCENT} />
+            <stop stopColor={LINE_ACCENT} stopOpacity="0" />
+            <stop offset="0.55" stopColor={LINE_ACCENT} stopOpacity="0.55" />
+            <stop offset="1" stopColor={LINE_ACCENT} />
           </linearGradient>
         ))}
       </defs>
@@ -1045,7 +1427,7 @@ function FlowLines({
               d={d}
               fill="none"
               stroke={stroke}
-              strokeWidth={4.5}
+              strokeWidth={4.5 * weight}
               strokeLinecap="round"
               opacity={0.3}
               filter="url(#echo-line-bloom)"
@@ -1054,7 +1436,7 @@ function FlowLines({
               d={d}
               fill="none"
               stroke={stroke}
-              strokeWidth={0.9}
+              strokeWidth={0.9 * weight}
               strokeLinecap="round"
               opacity={0.75}
             />
@@ -1062,7 +1444,7 @@ function FlowLines({
               d={d}
               fill="none"
               stroke={stroke}
-              strokeWidth={2.6}
+              strokeWidth={2.6 * weight}
               strokeLinecap="round"
               pathLength={100}
               /*
@@ -1108,12 +1490,15 @@ function FieldOrb({
   orb,
   selected,
   opacity,
+  hit,
   onSelect,
 }: {
   orb: EchoFieldOrb;
   selected: boolean;
   /** 由代际算好：选中最亮，上游依次淡，链外最暗。 */
   opacity: number;
+  /** 命中区的反向补偿倍数（缩小时放大，视觉不变）。 */
+  hit: number;
   onSelect: () => void;
 }) {
   return (
@@ -1126,8 +1511,8 @@ function FieldOrb({
       style={{
         left: orb.x,
         top: orb.y,
-        width: ORB_HIT,
-        height: ORB_HIT,
+        width: ORB_HIT * hit,
+        height: ORB_HIT * hit,
         opacity,
         transform: `translate(-50%, -50%) scale(${selected ? 1.08 : 1})`,
       }}
@@ -1170,11 +1555,16 @@ function FieldDestiny({
   destiny,
   selected,
   opacity,
+  labels,
+  hit,
   onSelect,
 }: {
   destiny: EchoFieldDestiny;
   selected: boolean;
   opacity: number;
+  /** 这个尺度上标题读得出来吗 —— 读不出来就别画（见 `LABEL_SCALE`）。 */
+  labels: boolean;
+  hit: number;
   onSelect: () => void;
 }) {
   const { seed } = destiny;
@@ -1197,6 +1587,19 @@ function FieldDestiny({
         transform: `translate(-50%, -50%) scale(${selected ? 1.06 : 1})`,
       }}
     >
+      {/*
+        命中区补偿。按钮盒子只能是蝶形核心那么大（那圈冷光和描边都按
+        `inset-0` 画，放大按钮等于放大视觉），所以另铺一张看不见的垫子把可点
+        范围撑开 —— 它在按钮里，点它就是点这枚命运。
+      */}
+      {hit > 1 ? (
+        <span
+          aria-hidden
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+          style={{ width: DESTINY_CORE * hit, height: DESTINY_CORE * hit }}
+        />
+      ) : null}
+
       {/* 冷光垫在最底下，选中时铺开一倍 —— 命运是「牵着的」，不是在喘 */}
       <span
         className="absolute left-1/2 top-1/2 block -translate-x-1/2 -translate-y-1/2 rounded-full transition-[width,height,opacity] duration-500 ease-out"
@@ -1236,13 +1639,16 @@ function FieldDestiny({
         回响光球，而这一屏两者是并列的。选中那枚才回到接近地图的浓度。
       */}
       <span
-        className="absolute left-1/2 flex w-max -translate-x-1/2 items-center gap-[5px] rounded-full border py-[4px] pl-[6px] pr-[10px] transition-colors duration-500"
+        className={`absolute left-1/2 flex w-max -translate-x-1/2 items-center gap-[5px] rounded-full border py-[4px] pl-[6px] pr-[10px] transition-[color,background,border-color,opacity] duration-500 ${
+          labels ? "" : "pointer-events-none"
+        }`}
         style={{
           top: DESTINY_CORE + 7,
           borderColor: `${accent}${selected ? "80" : "33"}`,
           background: selected
             ? `linear-gradient(90deg, ${accent}cc, ${accent}80)`
             : `${accent}1f`,
+          opacity: labels ? 1 : 0,
         }}
       >
         <SpeakerStack speakers={seed.speakers} size={17} overlap={6} />
@@ -1271,6 +1677,7 @@ function FieldNode({
   lit,
   picked,
   aside,
+  labels,
   onSelect,
 }: {
   node: EchoFieldNode;
@@ -1278,6 +1685,8 @@ function FieldNode({
   picked: boolean;
   /** 场上已经有选中的东西，而这张不是它 —— 散件跟着退一档。 */
   aside: boolean;
+  /** 缩到全局那一档时字读不出来，只留头像/光点（见 `LABEL_SCALE`）。 */
+  labels: boolean;
   /** 只有还在酝酿的散件事件给，给了就整张卡可点。 */
   onSelect?: () => void;
 }) {
@@ -1350,15 +1759,23 @@ function FieldNode({
         </span>
       )}
 
+      {/*
+        字。缩到全局那一档就整块淡掉 —— 那个尺度上 11px 只剩两三个像素，
+        画出来是灰糊，不如把这一片留给光点和线（`labels`）。淡出而不是直接
+        不渲染：捏合是连续的，突然多出一片字会顿一下。
+      */}
       {isMoment ? (
         <p
-          className="whitespace-nowrap font-medium text-white/70"
-          style={{ fontSize: 11 * s }}
+          className="whitespace-nowrap font-medium text-white/70 transition-opacity duration-300"
+          style={{ fontSize: 11 * s, opacity: labels ? 1 : 0 }}
         >
           {node.text}
         </p>
       ) : (
-        <span className="flex shrink-0 flex-col" style={{ gap: 2 * s }}>
+        <span
+          className="flex shrink-0 flex-col transition-opacity duration-300"
+          style={{ gap: 2 * s, opacity: labels ? 1 : 0 }}
+        >
           <span
             className="flex items-baseline whitespace-nowrap"
             style={{ gap: 5 * s }}
@@ -1419,6 +1836,20 @@ function brewingPct(v: number): string {
 /* ─────────────────────────── 半层 ─────────────────────────── */
 
 /**
+ * 三张半层共用的外壳：贴底、圆角、上滑进场，加上那层玻璃。
+ *
+ * 颜色跟着整屏走。原先是「黑 20% + 深蓝 50%」两层叠出来的深蓝玻璃 —— 那是配
+ * 深蓝底的；底压到近黑之后，同一片深蓝就成了一块浮在黑上的蓝斑。现在合成一层
+ * 近黑（叠两层本来也只是在算同一个合成色，没必要摆两个 div）。
+ *
+ * 留 26% 的透明和那层模糊：半层要读作「压在星图上的一张卡」，不是一块换了内容
+ * 的黑板 —— 底下的线隐约透上来，人才知道图还在那儿。顶边那道白线也是为这个：
+ * 底和半层都近黑，不描一下边界就分不出哪儿是卡的上沿。
+ */
+const SHEET_SHELL =
+  "absolute bottom-0 left-0 w-full overflow-hidden rounded-t-[16px] border-t border-white/[0.08] bg-[#070912]/[0.74] pb-[16px] backdrop-blur-[10px] transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)]";
+
+/**
  * 选中回响的内容（设计稿 `3407:10727`）。
  *
  * 只读一段：这里是星图的注解，不是回响详情页 —— 完整的「我的行为 →
@@ -1464,13 +1895,11 @@ function EchoDetailSheet({
     <div
       ref={rootRef}
       onPointerDown={(e) => e.stopPropagation()}
-      className={`absolute bottom-0 left-0 w-full overflow-hidden rounded-t-[16px] bg-black/20 pb-[16px] backdrop-blur-[10px] transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+      className={`${SHEET_SHELL} ${
         story ? "translate-y-0" : "translate-y-full"
       }`}
       aria-hidden={!story}
     >
-      <div className="absolute inset-0 bg-[#0c1135]/50" />
-
       {shown ? (
         <div className="relative flex flex-col gap-[12px] px-[20px] pb-[24px] pt-[20px]">
           <div className="flex items-start justify-between gap-[12px]">
@@ -1563,13 +1992,11 @@ function DestinyDetailSheet({
     <div
       ref={rootRef}
       onPointerDown={(e) => e.stopPropagation()}
-      className={`absolute bottom-0 left-0 w-full overflow-hidden rounded-t-[16px] bg-black/20 pb-[16px] backdrop-blur-[10px] transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+      className={`${SHEET_SHELL} ${
         destiny ? "translate-y-0" : "translate-y-full"
       }`}
       aria-hidden={!destiny}
     >
-      <div className="absolute inset-0 bg-[#0c1135]/50" />
-
       {shown ? (
         <div className="relative flex flex-col gap-[12px] px-[20px] pb-[24px] pt-[20px]">
           <div className="flex items-start justify-between gap-[12px]">
@@ -1736,13 +2163,11 @@ function LooseEventSheet({
     <div
       ref={rootRef}
       onPointerDown={(e) => e.stopPropagation()}
-      className={`absolute bottom-0 left-0 w-full overflow-hidden rounded-t-[16px] bg-black/20 pb-[16px] backdrop-blur-[10px] transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+      className={`${SHEET_SHELL} ${
         node ? "translate-y-0" : "translate-y-full"
       }`}
       aria-hidden={!node}
     >
-      <div className="absolute inset-0 bg-[#0c1135]/50" />
-
       {shown ? (
         <div className="relative flex flex-col gap-[12px] px-[20px] pb-[24px] pt-[20px]">
           <div className="flex flex-col gap-[6px]">

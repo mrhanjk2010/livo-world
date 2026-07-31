@@ -240,6 +240,21 @@ body {
 }
 
 /*
+ * 世界背面那张运转日志：新的一行落下时，整叠往上顶一格。
+ *
+ * 一格的高度由行高从内联样式传进来（`--log-line`），因为字号一改这个数就得跟
+ * 着改，写死在这里两处会各走各的。
+ */
+@keyframes livo-log-scroll {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(calc(var(--log-line, 18px) * -1));
+  }
+}
+
+/*
  * 命运光环旋涡：逆时针缓慢旋转（负角度）。
  * 外圈 / 中圈 / 雾层用不同时长叠在一起，更像涡旋。
  */

@@ -222,6 +222,81 @@ export const ECHO_ARCHIVE: readonly EchoFieldEntry[] = [
       { kind: "moment", text: "在无名站停了七分钟" },
     ],
   },
+  {
+    id: "echo-harmonica",
+    title: "口琴在后半夜响过一次",
+    resultText:
+      "调比平时低半音，铜面在冷里缩了。曲子只吹了半段就停，之后每晚这个时候观景廊都空着——没人规定，也没人去坐。",
+    speakers: [
+      { kind: "cast", memberId: "staen" },
+      { kind: "npc", name: "乘务员" },
+    ],
+    roomId: "promenade",
+    // 那盏亮到天光的灯：没睡着的人后半夜去了观景廊。
+    causeEchoIds: ["echo-berth-b"],
+    nodes: [
+      {
+        kind: "event",
+        speakers: [{ kind: "cast", memberId: "staen" }],
+        text: "把口琴从内袋里摸出来",
+      },
+      {
+        kind: "event",
+        speakers: [{ kind: "npc", name: "乘务员" }],
+        text: "路过时没有出声",
+      },
+      { kind: "moment", text: "熄灯之后最静的那段" },
+    ],
+  },
+  {
+    id: "echo-night-watch",
+    title: "值夜的班次换了一个人",
+    resultText:
+      "换的是后半夜那班。新排上来的人不熟悉铃声的次序，第一夜按旧序敲了两遍——之后每晚都敲两遍，没人再纠。",
+    speakers: [
+      { kind: "npc", name: "乘务员" },
+      { kind: "cast", memberId: "staen" },
+    ],
+    roomId: "crew",
+    // 时刻表对不上，值夜的班次跟着重排。
+    causeEchoIds: ["echo-crew"],
+    nodes: [
+      {
+        kind: "event",
+        speakers: [{ kind: "npc", name: "乘务员" }],
+        text: "把值夜的名字换了一个",
+      },
+      {
+        kind: "event",
+        speakers: [{ kind: "you" }],
+        text: "记住了新来那个人的脸",
+      },
+      { kind: "moment", text: "后半夜交班的那一刻" },
+    ],
+  },
+  {
+    id: "echo-gloves",
+    title: "手套摘下来过一次",
+    resultText:
+      "只在那一杆的时间里。指节上的旧伤比记分牌上的名字更旧，重新戴上时他把袖口也拉严了——从那以后他握杆只用右手。",
+    speakers: [{ kind: "cast", memberId: "renqingyi" }, { kind: "you" }],
+    roomId: "billiard",
+    // 记分牌上那个名字留着没人擦，牌桌就一直没散干净。
+    causeEchoIds: ["echo-billiard"],
+    nodes: [
+      {
+        kind: "event",
+        speakers: [{ kind: "cast", memberId: "renqingyi" }],
+        text: "为了那一杆摘了左手",
+      },
+      {
+        kind: "event",
+        speakers: [{ kind: "you" }],
+        text: "看见了，没有问",
+      },
+      { kind: "moment", text: "球房里只剩最后一盏灯" },
+    ],
+  },
 ];
 
 /**
@@ -387,5 +462,35 @@ export const LOOSE_EVENTS: readonly LooseEventSeed[] = [
     text: "餐车的空位比昨天多两个",
     brewing: 0.33,
     nudges: [{ kind: "respond", text: "说一句：餐车又空了两个位子" }],
+  },
+  {
+    speakers: [{ kind: "you" }, { kind: "cast", memberId: "santing" }],
+    text: "茶炉边多备了一只空杯",
+    brewing: 0.52,
+    nudges: [
+      { kind: "chat", who: "散庭·姚", text: "问他那只空杯留给谁" },
+      { kind: "respond", text: "说一句：茶室那只空杯还在" },
+    ],
+  },
+  {
+    speakers: [
+      { kind: "cast", memberId: "staen" },
+      { kind: "npc", name: "巡警" },
+    ],
+    text: "名单上有一行被划了两遍",
+    brewing: 0.46,
+    nudges: [{ kind: "chat", who: "施塔恩", text: "问他划掉的那一行是谁" }],
+  },
+  {
+    speakers: [{ kind: "npc", name: "乘务长" }],
+    text: "行李架上多了一只箱子",
+    brewing: 0.38,
+    nudges: [{ kind: "respond", text: "说一句：那只箱子不是谁的行李" }],
+  },
+  {
+    speakers: [{ kind: "world" }],
+    text: "温室的暖气管半夜响了一声",
+    brewing: 0.3,
+    nudges: [{ kind: "respond", text: "说一句：温室那边半夜有动静" }],
   },
 ];

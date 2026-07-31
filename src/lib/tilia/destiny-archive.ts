@@ -1,5 +1,5 @@
 /**
- * 命运档案 —— 已经走完的那几枚命运，只在全屏「世界命运」星图里能翻到。
+ * 命运档案 —— 已经走完的那几枚命运，只在全屏「世界背面」星图里能翻到。
  *
  * 和 `DESTINY_MARKERS` 的分工：那张表是「此刻还挂在地图上、点进去能聊」的
  * 命运；这里是走完之后沉下来的记录。同 `echo-archive.ts` 对回响的分工。
@@ -9,10 +9,10 @@
  * 场才有了去车头的念头。原来这条线只在旁边的文字里讲，星图里看不见 —— 现在
  * 把它摆进去，因果就不只是一句说明。
  *
- * 另外几条是早几日的：牌桌、名单、小说家的那页稿纸、丝巾。它们都咬在既有的
- * 回响上 —— 有的是某枚回响的因，有的反过来由回响牵出来，还有两条自己就是两
- * 节的链。主线一条孤零零挂在那儿的话，「命运会互相牵」这件事就只是特例；几
- * 条并排着，才看得出这是世界的常态。
+ * 另外几条是早几日的：牌桌、名单、小说家的那页稿纸、丝巾、值夜、口琴。它们
+ * 都咬在既有的回响上 —— 有的是某枚回响的因，有的反过来由回响牵出来，还有几
+ * 条自己就是两节的链。主线一条孤零零挂在那儿的话，「命运会互相牵」这件事就
+ * 只是特例；几条并排着，才看得出这是世界的常态。
  *
  * 三种边同时存在，这是这张图想说的全部：
  *
@@ -76,6 +76,44 @@ export const DESTINY_CHAIN: readonly DestinyChainSeed[] = [
     effectEchoIds: ["echo-billiard"],
   },
   {
+    id: "destiny-gloves",
+    title: "摘手套的那一杆",
+    kind: "destined",
+    speakers: [{ kind: "you" }, { kind: "cast", memberId: "renqingyi" }],
+    roomId: "billiard",
+    outcomeText:
+      "皮头连滑三次，第四次他把左手手套摘了。你什么也没问，他也没解释——那一杆进了，之后他再没摘过。",
+    nodes: [
+      {
+        kind: "event",
+        speakers: [{ kind: "you" }],
+        text: "陪他把那一局打完",
+      },
+      { kind: "moment", text: "皮头连滑三次之后" },
+    ],
+    causeIds: ["destiny-billiard"],
+    effectEchoIds: ["echo-gloves"],
+  },
+  {
+    id: "destiny-harmonica",
+    title: "那半段曲子",
+    kind: "potential",
+    speakers: [{ kind: "you" }, { kind: "cast", memberId: "staen" }],
+    roomId: "promenade",
+    outcomeText:
+      "你说想听他吹完，他说后半段是给活着回去的人吹的。第二天后半夜，观景廊真的响了半段——他没说会是什么时候。",
+    nodes: [
+      {
+        kind: "event",
+        speakers: [{ kind: "you" }, { kind: "cast", memberId: "staen" }],
+        text: "在观景廊等他吹完",
+      },
+      { kind: "moment", text: "灯只留了尽头那一盏" },
+    ],
+    causeIds: ["echo-berth-b"],
+    effectEchoIds: ["echo-harmonica"],
+  },
+  {
     id: "destiny-roster",
     title: "护送名单",
     kind: "destined",
@@ -97,6 +135,25 @@ export const DESTINY_CHAIN: readonly DestinyChainSeed[] = [
     ],
     causeIds: ["echo-crew"],
     effectEchoIds: ["echo-berth-a"],
+  },
+  {
+    id: "destiny-night-watch",
+    title: "换上来的那个人",
+    kind: "potential",
+    speakers: [{ kind: "you" }, { kind: "npc", name: "乘务员" }],
+    roomId: "crew",
+    outcomeText:
+      "名单重排到第三遍，后半夜那班就换了人。他接班时把铃敲了两遍，说旧序是这么敲的——从那以后没人纠他。",
+    nodes: [
+      {
+        kind: "event",
+        speakers: [{ kind: "you" }],
+        text: "在乘务室等到交班",
+      },
+      { kind: "moment", text: "交班前那趟广播" },
+    ],
+    causeIds: ["destiny-roster"],
+    effectEchoIds: ["echo-night-watch"],
   },
   {
     id: "destiny-novelist",

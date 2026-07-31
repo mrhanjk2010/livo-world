@@ -387,7 +387,7 @@ export function TiliaMapScreen() {
 
       <EchoSheet story={activeEcho} onClose={() => setActiveEcho(null)} />
 
-      {/* 世界命运的全屏星图，入口是顶栏右上角那枚按钮 */}
+      {/* 世界背面的全屏星图，入口是顶栏右上角那枚按钮 */}
       <EchoFieldScreen
         open={echoFieldOpen}
         stories={ECHO_FIELD_STORIES}
