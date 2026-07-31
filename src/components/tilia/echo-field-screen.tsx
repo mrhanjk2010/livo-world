@@ -1022,6 +1022,17 @@ export function EchoFieldScreen({
               />
             ))}
           </div>
+
+          {/*
+            底部那张运转日志：星图给的是结果的形状，它给的是「还在算」。选中一枚
+            时它让位 —— 半层从底部升起来，那时候人读的是具体的一枚。
+
+            放在取景框里面（而不是和它并排）是为了手势：卡片自己要能点开全屏，
+            但从卡片上按下去往下一拖，拖的应该还是星图。挂在这一层，指针事件冒
+            泡到取景框的拖动处理，抬手时那发 click 也归它判 —— 拖过就不算点
+            （见 `swallowClickRef`）。
+          */}
+          <WorldRuntimeLog hidden={selectedId !== null || pickedId !== null} />
         </div>
 
         {/*
@@ -1072,12 +1083,6 @@ export function EchoFieldScreen({
             className="size-[20px] max-w-none"
           />
         </button>
-
-        {/*
-          底部那张运转日志：星图给的是结果的形状，它给的是「还在算」。选中一枚
-          时它让位 —— 半层从底部升起来，那时候人读的是具体的一枚。
-        */}
-        <WorldRuntimeLog hidden={selectedId !== null || pickedId !== null} />
 
         <EchoDetailSheet
           story={selectedOrb?.story ?? null}
