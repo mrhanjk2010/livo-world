@@ -24,26 +24,30 @@ import {
 import { wireCode, wireGlyph } from "@/lib/tilia/wire-code";
 
 /**
- * 进出场是整屏从下往上拉起来：世界动态卡右上那枚呼吸指示把它拉上来，这一屏右
- * 上那枚关闭再把它放回去。
- *
- * 原来这里是一次绕 Y 轴的翻转（世界页翻过去露出背面）。翻转说的是「同一张纸的
- * 另一面」，可这一屏现在是三条一直在跑的流水加背后那片星图 —— 它不是地图的背
- * 面，是垫在底下的那一层。拉起来更实：底下本来就有东西，你只是把它提上来看。
+ * 进出场是一次绕 Y 轴的翻转：世界动态卡右上那枚呼吸指示把世界页翻过去，露出
+ * 背面；这一屏右上那枚按钮再翻回来。
  */
-const ANIM_MS = 380;
+const ANIM_MS = 460;
+/** 翻进来之前停在这个角度 —— 几乎侧着，只留一线。 */
+const FLIP_FROM_DEG = -92;
 
 /**
- * 进和出的曲线不一样：进用一记减速（末端几乎贴住），出用加速（起步慢、后半段
- * 甩下去）。都用同一条 380ms —— 这一屏是整屏的东西，太快会像闪一下。
+ * 进和出的配时是不对称的，关键在不透明度什么时候走：
  *
- * 只走 transform，不带淡入淡出：一张不透明的面板从屏底推上来，中途变半透明就
- * 露出底下的地图，读起来反而像两层在打架。
+ * 进：先亮起来（四成时长），剩下的路让转角走完。侧到七八十度那几帧本来
+ *     就只剩一线，全程陪着淡入会读成一张薄片飞进来。
+ * 出：反过来 —— 得先撑住不透明，让人真看见它转走，最后一段才淡掉。淡出
+ *     要是也用四成时长，六成的翻转就发生在全透明状态下，回到地图这一下
+ *     看着就只是一记淡出，翻转白做了。
  */
-function riseTransition(entering: boolean): string {
-  return `transform ${ANIM_MS}ms ${
+function flipTransition(entering: boolean): string {
+  const spin = `transform ${ANIM_MS}ms ${
     entering ? "cubic-bezier(0.22,1,0.36,1)" : "cubic-bezier(0.4,0,1,1)"
   }`;
+  const fade = entering
+    ? `opacity ${Math.round(ANIM_MS * 0.4)}ms ease-out`
+    : `opacity ${Math.round(ANIM_MS * 0.45)}ms ease-in ${Math.round(ANIM_MS * 0.55)}ms`;
+  return `${spin}, ${fade}`;
 }
 
 const ACCENT = "#ffa16b";
@@ -116,7 +120,7 @@ type FlowEdge = {
 /**
  * 全屏「世界背面」。
  *
- * 从世界动态卡右上那枚呼吸指示拉起来。动态页答的是「世界发生了什么」，这里答
+ * 从世界动态卡右上那枚呼吸指示翻进来。动态页答的是「世界发生了什么」，这里答
  * 的是「它背地里在怎么算」。
  *
  * 这一屏原先是一张可拖、可缩、点得动的星图：点一枚回响就拉出它的上游，底下升
@@ -149,13 +153,13 @@ export function EchoFieldScreen({
   const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
   /**
-   * 拉到位之后把 transform 撤成 `none`。留着一个 `translateY(0)` 也是 transform，
+   * 翻转落定后把 transform 撤成 `none`。留着一个 `rotateY(0)` 也是 transform，
    * 会让这一层变成 backdrop root —— 卡片那圈 `backdrop-blur` 采样的范围跟着
-   * 变，静止态的观感就和拉起来之前不一样了。
+   * 变，静止态的观感就和翻转前不一样了。
    */
   const [settled, setSettled] = useState(false);
-  /** 开了「减少动态效果」就不拉，退回一记淡入。 */
-  const [rise, setRise] = useState(true);
+  /** 开了「减少动态效果」就不翻，退回原来那记淡入。 */
+  const [flip, setFlip] = useState(true);
 
   const field = useMemo(
     () => buildEchoField(stories, loose, destinies),
@@ -242,8 +246,8 @@ export function EchoFieldScreen({
       };
     }
     if (!mounted) return;
-    // 关：先把 transform 装回去，再往下走 —— 两件事同一帧提交，`none` 到
-    // `translateY(0)` 之间浏览器按单位矩阵插值，不会闪。
+    // 关：先把 transform 装回去，再翻走 —— 两件事同一帧提交，`none` 到
+    // 侧转角度之间浏览器按单位矩阵插值，不会闪。
     setSettled(false);
     setVisible(false);
     const t = setTimeout(() => setMounted(false), ANIM_MS);
@@ -257,7 +261,7 @@ export function EchoFieldScreen({
   }, [visible]);
 
   useEffect(() => {
-    setRise(!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+    setFlip(!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
   }, []);
 
   const overlayRoot = usePhoneOverlayRoot();
@@ -275,14 +279,14 @@ export function EchoFieldScreen({
          * 纱一起被推走，底下的地图就从边上露出来了。clip 不是滚动容器。
          */
         className={`absolute inset-0 overflow-clip ${
-          rise || visible ? "opacity-100" : "opacity-0"
+          visible ? "opacity-100" : "opacity-0"
         }`}
         style={{
           transform:
-            !rise || (visible && settled)
+            !flip || (visible && settled)
               ? undefined
-              : `translateY(${visible ? 0 : 100}%)`,
-          transition: rise ? riseTransition(visible) : "opacity 280ms ease-out",
+              : `perspective(1400px) rotateY(${visible ? 0 : FLIP_FROM_DEG}deg)`,
+          transition: flip ? flipTransition(visible) : "opacity 280ms ease-out",
         }}
       >
         {/*
@@ -351,7 +355,11 @@ export function EchoFieldScreen({
           </p>
         </div>
 
-        {/* 关闭：和世界动态展开页同一颗按钮 —— 两处都是「把这一屏放回去」 */}
+        {/*
+          关闭用叉，不用来时那枚翻转图标：图标的意思是「翻到另一面」，可这一层
+          已经是另一面了，同一枚图标摆在这儿读起来像还能再翻一次。回去的动作还
+          是翻的（`flipTransition`），只是按钮不再替它做说明。
+        */}
         <button
           type="button"
           onClick={onClose}
