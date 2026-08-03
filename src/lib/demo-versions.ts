@@ -31,6 +31,12 @@ export type DemoVersion = {
 /** 新的排前面 —— 第一条就是最新那一版，根目录的跳转页指向它。 */
 export const DEMO_VERSIONS: readonly DemoVersion[] = [
   {
+    id: "v6",
+    label: "三条流水",
+    date: "08-03",
+    note: "星图退到背后当底噪，正面三张卡：世界在算、命运在涌、因果在推",
+  },
+  {
     id: "v5",
     label: "代码星图",
     date: "08-03",

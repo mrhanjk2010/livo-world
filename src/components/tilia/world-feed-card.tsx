@@ -32,14 +32,15 @@ import {
  * 完整版。单条不再是热区 —— 一行 13px 的字里塞一个跳地图的入口，
  * 手指分不清点的是哪一条，读的时候也总怕碰到。
  *
- * 表头右上那枚呼吸指示是另一个入口：动态页答「世界发生了什么」，它答
- * 「那些事汇聚成了什么」，也就是全屏回响星图。落在它身上是因为那枚绿
- * 点本来讲的就是「世界正在往前长」，点进去看长出了什么，是同一句话的
- * 下一层。
+ * 表头右上那枚呼吸指示是另一个入口，通往全屏的「世界背面」：动态页答「世界发
+ * 生了什么」，背面答「它背地里在怎么算」。落在它身上是因为那枚绿点本来讲的就
+ * 是「世界正在往前长」，点进去看它怎么长，是同一句话的下一层 —— 比挂在顶栏当
+ * 一枚并排的功能按钮准确。
  */
 export function WorldFeedCard({
   onOpenDestiny,
   onOpenRespond,
+  onOpenBackside,
   cooldownRemainingSec,
   voiceItem,
   clock,
@@ -48,6 +49,8 @@ export function WorldFeedCard({
   onOpenDestiny: () => void;
   /** 点「回应这一刻」：打开全屏输入遮罩。 */
   onOpenRespond: () => void;
+  /** 点表头右上那枚呼吸指示：翻到世界背面。 */
+  onOpenBackside: () => void;
   /** 冷却剩余秒数；>0 时入口禁用并显示酝酿文案。 */
   cooldownRemainingSec: number;
   /** 父级下发的用户回应；按 id 去重后写入动态。 */
@@ -179,12 +182,27 @@ export function WorldFeedCard({
           }}
           className="flex w-full cursor-pointer flex-col items-center gap-[10px] rounded-[12px] transition-colors duration-200 hover:bg-white/[0.03]"
         >
-          {/* 表头：世界动态 · 时间 天气 + live 指示 */}
+          {/* 表头：世界动态 · 时间 天气 + live 指示（也是世界背面的入口） */}
           <div className="flex w-full items-center justify-center gap-[6px] px-[16px]">
             <p className="min-w-0 flex-1 text-[13px] font-medium leading-[1.5] text-[#9f9f9f]">
               世界动态 · {clockLabel.time} {clockLabel.weather}
             </p>
-            <WorldLiveIndicator />
+            {/*
+              截住冒泡：这枚在整张卡的热区里面，不拦的话点它会连世界动态页
+              一起打开，两张全屏叠着升起来。
+            */}
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenBackside();
+              }}
+              aria-label="世界背面：看它背地里在怎么算"
+              className="shrink-0 rounded-full transition-transform duration-200 hover:scale-105 active:scale-95"
+            >
+              <WorldLiveIndicator />
+            </button>
           </div>
 
           {/*

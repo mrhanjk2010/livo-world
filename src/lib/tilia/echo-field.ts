@@ -2,22 +2,21 @@
  * 世界背面星图的落位（设计稿 `3406:9892` / `3407:10459`）。
  *
  * 设计稿给的是一屏的取景：回响光球散在整屏，事件/时机小卡更弱地铺在它们
- * 之间，选中一枚才拉出弧线。但世界记的事比一屏多得多 —— 所以这里不再把
- * 内容塞进 375×812，而是反过来：画布跟着内容长，一屏只是取景框，星图靠拖
- * 动看完。设计稿的密度与景深关系保留，画板尺寸不保留。
+ * 之间。但世界记的事比一屏多得多 —— 所以这里不再把内容塞进 375×812，而是
+ * 反过来：画布跟着内容长，一屏只是取景框。设计稿的密度与景深关系保留，画
+ * 板尺寸不保留。
+ *
+ * 星图如今退成了「世界背面」的背景（见 `EchoFieldScreen`），一屏只看得见画布
+ * 中间那一块 —— 落位仍然照整张画布算：疏密是靠整张图排出来的，只排看得见的那
+ * 一块，剩下的边角就会露出网格。
  *
  * 归纳出来的单位是「簇」：
  *
  *   一枚回响光球 + 汇聚进它的若干事件/时机，节点一律摆在光球的上方。
  *
- * 「一律在上方」不是审美偏好，是被底部半层逼出来的：选中后半层从底部升
- * 起、光球要避让到半层之上（见 `EchoFieldScreen` 的取景），节点跟着光球
- * 一起往上走才不会被半层吃掉。同理画布底部留 `BOTTOM_RESERVE` 一段空 ——
- * 最后一行的簇也得抬得起来。
- *
- * 簇按 `COLS` 列 × N 行分区摆，区内偏移由 id 哈希决定：确定性的（每次打开同
- * 一枚回响都在同一处，截图和记忆才对得上），但不整齐（不然一眼就是网格）。
- * 坐标是画布 px，不是百分比 —— 星图不跟着地图缩放，没有换算的必要。
+ * 簇按 `COLS` 列 × N 行分区摆，区内偏移由 id 哈希决定：确定性的（每次打开长得
+ * 一样，截图和记忆才对得上），但不整齐（不然一眼就是网格）。坐标是画布 px，不
+ * 是百分比 —— 星图不跟着地图缩放，没有换算的必要。
  *
  * 命运和回响共用这套格子、交替落位（见 `layoutHeads`），不再各占半张画布。
  */
@@ -28,7 +27,6 @@ import type {
   LooseNudge,
 } from "@/lib/tilia/echo-archive";
 import type { DestinyChainSeed } from "@/lib/tilia/destiny-archive";
-import type { LiveArrival } from "@/lib/tilia/echo-live";
 import type { EchoNodeSeed } from "@/lib/tilia/echo-story";
 import type { FeedSpeaker } from "@/lib/tilia/world-feed";
 
@@ -86,8 +84,6 @@ const HEAD_SPREAD_Y = 0.4;
 /** 促成命运的小卡摆在它左上方 —— 蝶形下面挂着标题胶囊，正下方摆不开。 */
 const DESTINY_NODE_DX = Math.round(-88 * ZOOM);
 const DESTINY_NODE_DY = [Math.round(-88 * ZOOM), Math.round(-51 * ZOOM)] as const;
-/** 画布底部留白：给「选中后抬到半层之上」留出行程。 */
-const BOTTOM_RESERVE = 280;
 /** 顶部留白：第一行的簇也得有地方摆它上方的节点。 */
 const TOP_PAD = Math.round(150 * ZOOM);
 /** 任何东西都不贴边。 */
@@ -162,16 +158,12 @@ export type EchoFieldNode = {
   /** 只有还没接上线的事件有：酝酿进度 0–1，以及能推它一把的做法。 */
   brewing?: number;
   nudges?: readonly LooseNudge[];
-  /** 陆续到场的那一批：第几次到场之前先不显示（见 `LIVE_ARRIVALS`）。 */
-  live?: number;
 };
 
 export type EchoFieldOrb = {
   story: EchoFieldEntry;
   x: number;
   y: number;
-  /** 同 `EchoFieldNode.live`：这枚回响是看着它冒出来的。 */
-  live?: number;
 };
 
 export type EchoFieldDestiny = {
@@ -184,14 +176,12 @@ export type EchoField = {
   /** 画布尺寸，由内容量决定。 */
   width: number;
   height: number;
-  /** 有内容的那部分高度（`height` 减去底部给半层留的行程）。 */
-  contentHeight: number;
   /**
-   * 最靠上那个东西的上沿（含它的光晕/胶囊）。
+   * 最靠上那个东西的上沿（含它的光晕）。
    *
    * 画布顶上有 `TOP_PAD` 一段空 —— 那是给第一行的簇摆它上方小卡用的，摆不满
-   * 就是纯空白。开场取景要「内容贴着屏顶」，按画布 0 对齐会先怼进来七八十个
-   * 像素的空，所以量一个真实的上沿出来（见 `EchoFieldScreen` 的 `homePan`）。
+   * 就是纯空白。取景要按「有内容的那一段」居中，照画布 0 算会把这段空白也算
+   * 进去，整片图于是偏下（见 `EchoFieldScreen` 的 `pan`）。
    */
   contentTop: number;
   orbs: readonly EchoFieldOrb[];
@@ -213,44 +203,17 @@ export type LooseEvent = LooseEventSeed;
  *
  * `destinies` 和回响交替占同一套格子，每枚也带自己的小卡（促成它的事件与时
  * 机）。它们和回响共享一套小卡渲染，只是归属指向命运而不是回响。
- *
- * `live` 是打开之后才陆续到场的那一批（见 `echo-live.ts`）。它们和常驻的一起
- * 参与排布、一起避位，只是每个都带上「属于第几次到场」的编号 —— 位置在这里就
- * 定死了，运行时只决定显不显示。反过来做（到场时再找位置）会把已经摆好的图挤
- * 动，那比不动更假。
  */
 export function buildEchoField(
   stories: readonly EchoFieldEntry[],
   loose: readonly LooseEvent[] = [],
   destinies: readonly DestinyChainSeed[] = [],
-  live: readonly LiveArrival[] = [],
 ): EchoField {
-  /*
-   * 把到场的那批混进常驻的两个列表里，同时记下谁是第几次到场：回响按 id 记，
-   * 散件事件按它在合并后列表里的下标记（小卡 id 就是按这个下标拼的）。
-   */
-  const liveOrbSlot = new Map<string, number>();
-  const liveLooseSlot = new Map<number, number>();
-  const liveStories: EchoFieldEntry[] = [];
-  const liveLoose: LooseEvent[] = [];
-  live.forEach((arrival, slot) => {
-    if (arrival.kind === "echo") {
-      liveOrbSlot.set(arrival.echo.id, slot);
-      liveStories.push(arrival.echo);
-    } else {
-      liveLooseSlot.set(loose.length + liveLoose.length, slot);
-      liveLoose.push(arrival.event);
-    }
-  });
-  const allStories = liveStories.length ? [...stories, ...liveStories] : stories;
-  const allLoose = liveLoose.length ? [...loose, ...liveLoose] : loose;
-
-  const { rows, heads } = layoutHeads(allStories, destinies);
+  const { rows, heads } = layoutHeads(stories, destinies);
   const width = COLS * CELL_W;
   /* 一列里的枚数不一定填满 `rows`，短的那列把间距摊开占满同样的高度。 */
   const span = rows * CELL_H;
-  const contentHeight = TOP_PAD + span + Math.round(CELL_H * COL_STAGGER);
-  const height = contentHeight + BOTTOM_RESERVE;
+  const height = TOP_PAD + span + Math.round(CELL_H * COL_STAGGER);
 
   const clampX = (x: number) => Math.min(width - EDGE_X, Math.max(EDGE_X, x));
   const clampY = (y: number) => Math.min(height - EDGE_Y, Math.max(EDGE_Y, y));
@@ -285,8 +248,7 @@ export function buildEchoField(
   relaxHeads(placedHeads, clampX, clampY);
 
   for (const { ref, x, y } of placedHeads) {
-    if (ref.kind === "echo")
-      orbs.push({ story: ref.story, x, y, live: liveOrbSlot.get(ref.story.id) });
+    if (ref.kind === "echo") orbs.push({ story: ref.story, x, y });
     else destinyPoints.push({ seed: ref.seed, x, y });
   }
 
@@ -313,7 +275,7 @@ export function buildEchoField(
    * 枚命运的标题胶囊，两格找不开的情形多了几处；四格约 170px，还在「同一
    * 簇」读得出来的范围内。
    */
-  orbs.forEach(({ story, x: ox, y: oy, live: liveSlot }, i) => {
+  orbs.forEach(({ story, x: ox, y: oy }, i) => {
     const orb = { x: ox, y: oy };
     const template = NODE_TEMPLATES[i % NODE_TEMPLATES.length];
     story.nodes.slice(0, template.length).forEach((seed, ni) => {
@@ -322,8 +284,6 @@ export function buildEchoField(
         {
           id: `${story.id}-n${ni}`,
           ownerId: story.id,
-          // 促成它的那几张跟着这枚回响一起到场：果和因不该分两次出现。
-          live: liveSlot,
           kind: seed.kind,
           speakers: seed.kind === "event" ? seed.speakers : [],
           text: seed.text,
@@ -367,7 +327,7 @@ export function buildEchoField(
    * 任何一枚回响或命运），挪远一点不损失任何意思，谁该让谁很清楚。
    */
   const looseCols = COLS + 1;
-  const looseRows = Math.max(1, Math.ceil(allLoose.length / looseCols));
+  const looseRows = Math.max(1, Math.ceil(loose.length / looseCols));
   const looseScales: readonly NodeScale[] = [
     SCALE_MID,
     SCALE_FAR,
@@ -377,7 +337,7 @@ export function buildEchoField(
     SCALE_FAR,
   ];
 
-  allLoose.forEach((seed, i) => {
+  loose.forEach((seed, i) => {
     const key = `loose-${i}-${seed.text}`;
     const col = i % looseCols;
     const row = Math.floor(i / looseCols);
@@ -390,13 +350,12 @@ export function buildEchoField(
         text: seed.text,
         brewing: seed.brewing,
         nudges: seed.nudges,
-        live: liveLooseSlot.get(i),
         x: clampX(
           (col + 0.5) * (width / looseCols) + jitter(key, 3, 90 * ZOOM),
         ),
         y: clampY(
           EDGE_Y +
-            ((row + 0.4) / looseRows) * (contentHeight - EDGE_Y) +
+            ((row + 0.4) / looseRows) * (height - EDGE_Y) +
             jitter(key, 4, CELL_H * 0.45),
         ),
         scale: looseScales[i % looseScales.length],
@@ -415,7 +374,6 @@ export function buildEchoField(
   return {
     width,
     height,
-    contentHeight,
     contentTop,
     orbs,
     destinies: destinyPoints,
@@ -658,14 +616,16 @@ function orderByCause(
 }
 
 /**
- * 小卡估宽（px）。取景避让要知道选中簇占多少地方，而卡片是文字撑开的，
- * 布局阶段量不到真实宽度，只能按字号估：中文一字约等于一个字号宽。
+ * 小卡估宽（px）。让位要知道一张卡占多少地方，而卡片是文字撑开的，布局阶段量
+ * 不到真实宽度，只能按字号估：中文一字约等于一个字号宽。
  *
- * 头像按叠放算（32 宽、压 8）—— 三个人的卡比一个人的宽出快五十，估窄了
- * 就会被推到取景框外切掉一截。文字取两行里长的那行：参与者那行字号小，
- * 但人多的时候反而比正文长。
+ * 头像按叠放算（32 宽、压 8）—— 三个人的卡比一个人的宽出快五十，估窄了两张卡
+ * 就会叠上。文字取两行里长的那行：参与者那行字号小，但人多的时候反而比正文长。
+ *
+ * 星图退成背景之后画出来的只是一枚光点，但估宽这件事不能跟着省：那些看不见的
+ * 盒子决定了光点之间的疏密，收掉它，满图的点会挤成一堆。
  */
-export function estimateNodeWidth(node: EchoFieldNode): number {
+function estimateNodeWidth(node: EchoFieldNode): number {
   if (node.kind === "moment") return (24 + 2 + node.text.length * 11) * node.scale;
   const head = 32 + Math.max(0, node.speakers.length - 1) * 24;
   // 名字按人均三字加一个顿号估，够用了 —— 差一两个字不影响避让。后面还

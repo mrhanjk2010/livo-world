@@ -358,11 +358,12 @@ export function TiliaMapScreen() {
         spawnedDestinies={spawnedDestinies}
       />
 
-      <TiliaTopBar onOpenEchoes={() => setEchoFieldOpen(true)} />
+      <TiliaTopBar />
 
       <WorldFeedCard
         onOpenDestiny={() => setDestinyOpen(true)}
         onOpenRespond={() => setRespondOpen(true)}
+        onOpenBackside={() => setEchoFieldOpen(true)}
         cooldownRemainingSec={cooldownRemainingSec}
         voiceItem={voiceItem}
         clock={worldClock}
@@ -387,7 +388,7 @@ export function TiliaMapScreen() {
 
       <EchoSheet story={activeEcho} onClose={() => setActiveEcho(null)} />
 
-      {/* 世界背面的全屏星图，入口是顶栏右上角那枚按钮 */}
+      {/* 全屏「世界背面」，入口是世界动态卡表头右上那枚呼吸指示 */}
       <EchoFieldScreen
         open={echoFieldOpen}
         stories={ECHO_FIELD_STORIES}
