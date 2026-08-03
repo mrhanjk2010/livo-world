@@ -1266,10 +1266,21 @@ export function EchoFieldScreen({
             hinted ? "opacity-0" : "opacity-100"
           }`}
         >
-          <p className="text-[15px] font-medium leading-[normal] text-white/90">
+          {/*
+            标题也收进这一屏的绿：背面这一层从线到字是同一种东西（世界正在算的
+            那些），白字会读成「界面盖在上面」，绿字读成「界面也是这一层的一部
+            分」。主副之分只交给透明度，和半层里那套一致。
+          */}
+          <p
+            className="text-[15px] font-medium leading-[normal]"
+            style={{ color: INK_TITLE, textShadow: FIELD_TEXT_GLOW }}
+          >
             世界背面
           </p>
-          <p className="text-[11px] leading-[normal] text-white/40">
+          <p
+            className="text-[11px] leading-[normal]"
+            style={{ color: INK_META }}
+          >
             {selectedId || pickedId
               ? "拖动查看 · 点空白处放下这一枚"
               : "双击或双指放大 · 点一枚看它由什么汇聚而成"}
@@ -1509,6 +1520,15 @@ const WIRE_ADVANCE = 0.6;
  * 大了字会糊成一条绿带，那就白写这些字了。
  */
 const WIRE_GLOW = 0.7;
+
+/**
+ * 星图上那些字外面的一点光。
+ *
+ * 线已经是发着光的代码了（`WIRE_GLOW`），字要是干干净净地印在上面，两者就不像
+ * 长在同一层。给字也垫一点同色的晕，整屏才是一块荧光屏，而不是荧光屏上贴了张
+ * 标签。压得很浅 —— 再多一点，11px 的字就糊了。
+ */
+const FIELD_TEXT_GLOW = `0 0 6px ${LINE_ACCENT}55`;
 
 /**
  * 静息态的那张网：图上每一条因果都连着 —— 只不过线不是画出来的，是写出来的。
@@ -2433,7 +2453,9 @@ function FieldDestiny({
 
       {/*
         胶囊。地图上是满色渐变，这里压到半透明 —— 满图十几枚满色胶囊会盖过
-        回响光球，而这一屏两者是并列的。选中那枚才回到接近地图的浓度。
+        回响光球，而这一屏两者是并列的。选中那枚也只是把这层色加浓一档，不像
+        地图那样填满：填满了字就得跟着变白，而这一屏的字统一是绿的（见下面那
+        行）。命运的红蓝仍然认得出来，它现在由描边、光晕和底色的那层薄色扛。
       */}
       <span
         className={`absolute left-1/2 flex w-max -translate-x-1/2 items-center gap-[5px] rounded-full border py-[4px] pl-[6px] pr-[10px] transition-[color,background,border-color,opacity,top] duration-500 ${
@@ -2444,10 +2466,9 @@ function FieldDestiny({
           top: revealed
             ? DESTINY_CORE + 7
             : (DESTINY_CORE + DESTINY_DOT) / 2 + 8,
-          borderColor: `${accent}${selected ? "80" : "33"}`,
-          background: selected
-            ? `linear-gradient(90deg, ${accent}cc, ${accent}80)`
-            : `${accent}1f`,
+          borderColor: `${accent}${selected ? "99" : "33"}`,
+          background: selected ? `${accent}3d` : `${accent}1f`,
+          boxShadow: selected ? `0 0 12px ${accent}4d` : undefined,
           opacity: labels ? 1 : 0,
         }}
       >
@@ -2466,7 +2487,10 @@ function FieldDestiny({
         >
           <SpeakerStack speakers={seed.speakers} size={17} overlap={6} />
         </span>
-        <span className="whitespace-nowrap text-[13px] font-medium leading-none text-white/90">
+        <span
+          className="whitespace-nowrap text-[13px] font-medium leading-none"
+          style={{ color: INK_TITLE, textShadow: FIELD_TEXT_GLOW }}
+        >
           {seed.title}
         </span>
       </span>
@@ -2629,8 +2653,13 @@ function FieldNode({
       */}
       {isMoment ? (
         <p
-          className="whitespace-nowrap font-medium text-white/70 transition-opacity duration-300"
-          style={{ fontSize: 11 * s, opacity: showText ? 1 : 0 }}
+          className="whitespace-nowrap font-medium transition-opacity duration-300"
+          style={{
+            fontSize: 11 * s,
+            opacity: showText ? 1 : 0,
+            color: INK_TITLE,
+            textShadow: FIELD_TEXT_GLOW,
+          }}
         >
           {node.text}
         </p>
@@ -2644,8 +2673,8 @@ function FieldNode({
             style={{ gap: 5 * s }}
           >
             <p
-              className="font-medium text-white/35"
-              style={{ fontSize: 10 * s }}
+              className="font-medium"
+              style={{ fontSize: 10 * s, color: INK_META }}
             >
               {node.speakers.map(speakerName).join("、")}
             </p>
@@ -2656,18 +2685,23 @@ function FieldNode({
             */}
             {node.brewing !== undefined ? (
               <p
-                className={`font-medium tabular-nums ${
-                  picked ? "text-white/45" : "text-white/25"
-                }`}
-                style={{ fontSize: 9 * s }}
+                className="font-medium tabular-nums"
+                style={{
+                  fontSize: 9 * s,
+                  color: picked ? INK_META : INK_FAINT,
+                }}
               >
                 {brewingPct(node.brewing)}
               </p>
             ) : null}
           </span>
           <p
-            className="whitespace-nowrap font-medium text-white/70"
-            style={{ fontSize: 11 * s }}
+            className="whitespace-nowrap font-medium"
+            style={{
+              fontSize: 11 * s,
+              color: INK_TITLE,
+              textShadow: FIELD_TEXT_GLOW,
+            }}
           >
             {node.text}
           </p>
