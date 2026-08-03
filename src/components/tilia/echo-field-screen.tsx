@@ -1558,7 +1558,7 @@ function RestLines({
         {edges.map((e) => (
           <path
             key={e.id}
-            d={arcPath(e.from, e.to)}
+            d={linkPath(e.from, e.to)}
             stroke={`url(#echo-rest-${e.id})`}
           />
         ))}
@@ -1601,8 +1601,11 @@ const GLINT_OPACITY_ASIDE = 0.12;
  * 换来的是「不是每条线同时都在流」，而是每条线轮着被点亮。恰好也更像世界该有
  * 的样子：不是所有因果都在同一刻起作用，是这儿一处那儿一处地在动。
  *
- * 轨迹用 `arcCurve` 现算，和线本身同一条二次贝塞尔，所以光点是贴着线走的，不是
- * 在旁边飘。动画用 WAAPI 而不是 CSS：每颗的轨迹各不相同，keyframes 得现生成。
+ * 轨迹用 `sampleLink` 现算，和线本身同一条折线、连磨圆的拐角都算进去，所以光点
+ * 是贴着线走的，不是在旁边飘 —— 拐角处尤其看得出来：抄近路的话，光点会从弯的外
+ * 侧切过去。取样按弧长等分，三段长短差得再多，跑起来也是匀速。
+ *
+ * 动画用 WAAPI 而不是 CSS：每颗的轨迹各不相同，keyframes 得现生成。
  */
 function RestGlints({
   edges,
@@ -1639,16 +1642,9 @@ function RestGlints({
       const edge = pool[Math.floor(Math.random() * pool.length)];
       if (!edge) return;
 
-      const { cx, cy } = arcCurve(edge.from, edge.to);
-      const path = Array.from({ length: GLINT_STEPS + 1 }, (_, k) => {
-        const t = k / GLINT_STEPS;
-        const u = 1 - t;
-        const x = u * u * edge.from.x + 2 * u * t * cx + t * t * edge.to.x;
-        const y = u * u * edge.from.y + 2 * u * t * cy + t * t * edge.to.y;
-        return {
-          transform: `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -50%)`,
-        };
-      });
+      const path = sampleLink(edge.from, edge.to, GLINT_STEPS).map((p) => ({
+        transform: `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -50%)`,
+      }));
       const duration =
         GLINT_TRAVEL_MS * (1 + (Math.random() * 2 - 1) * GLINT_SPREAD);
 
@@ -1793,7 +1789,7 @@ function FlowLines({
       </defs>
 
       {edges.map((e, i) => {
-        const d = arcPath(e.from, e.to);
+        const d = linkPath(e.from, e.to);
         const stroke = `url(#echo-flow-${e.id})`;
         return (
           <g key={e.id} opacity={e.strength}>
@@ -1839,36 +1835,137 @@ function FlowLines({
   );
 }
 
+/* ───────────────────── 连线的走法：圆角折线 ───────────────────── */
+
 /**
- * 从节点弯到光球的二次贝塞尔。控制点往「远离两点连线」的一侧推，鼓的
- * 方向按节点在光球的哪边定 —— 左边的往左沉、右边的往右沉，几条线于是
- * 收成一束而不是撞在一起。
+ * 拐角的圆角半径（画布 px）。给得比较大 —— 小圆角在缩到全局那一档时看不出来，
+ * 折线就成了硬转角，那是流程图的味道，不是这一屏要的。实际用多少还会被两侧线
+ * 段的长度掐住（见 `linkPath`）：短段上拐大弯会把线拐到段外面去。
  */
-function arcPath(
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-): string {
-  const { cx, cy } = arcCurve(from, to);
-  return `M ${from.x} ${from.y} Q ${cx.toFixed(2)} ${cy.toFixed(2)} ${to.x} ${to.y}`;
+const LINK_RADIUS = Math.round(16 * ZOOM);
+/** 圆角摊成几段折线来算长度和取样（给光点用，见 `sampleLink`）。 */
+const CORNER_STEPS = 6;
+
+/**
+ * 一条连线怎么走：正交两折，中途换一次方向。
+ *
+ * 原先是一条鼓向一侧的二次贝塞尔（「刻进石头的光」那个调子）。改成折线是为了配
+ * 这一屏后来长成的样子 —— 底下滚着终端日志、字收成一种绿、节点收成光点，曲线在
+ * 这堆东西里是唯一还带手感的笔迹。折线加圆角读起来是「布线」：世界背面是接线
+ * 的地方，不是画画的地方。
+ *
+ * 拐点取在中途而不是贴着某一端：贴着端点拐，满图的线会在光球周围挤成一把梳子；
+ * 取中途，每条线的横段各在自己的高度上，一百多条也不会叠成一根。
+ *
+ * 长边优先定方向 —— 竖着走得多的先竖后横再竖，横着走得多的反过来。这样中间那段
+ * 短、两头那段长，转折落在视线扫过去的中段，而不是折在端点上。
+ */
+function linkRoute(from: Point, to: Point): Point[] {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  // 几乎共线就别折了：一个像素的落差折出来的是一记抖动，不是一次转折。
+  if (Math.abs(dx) < 1 || Math.abs(dy) < 1) return [from, to];
+  if (Math.abs(dy) >= Math.abs(dx)) {
+    const my = from.y + dy / 2;
+    return [from, { x: from.x, y: my }, { x: to.x, y: my }, to];
+  }
+  const mx = from.x + dx / 2;
+  return [from, { x: mx, y: from.y }, { x: mx, y: to.y }, to];
 }
 
 /**
- * 上面那条弧的控制点。单独抽出来，是为了让 `RestGlints` 的光点能算出和线
- * 完全同一条曲线上的取样点 —— 光点得贴着线走，差一点就成了在旁边飘。
+ * 折线的 SVG 路径，拐角磨圆。
+ *
+ * 圆角用二次贝塞尔画：拐点本身当控制点，两条腿各退 r 作起终点 —— 这是画圆角最
+ * 省的写法，出来的弧和四分之一圆几乎重合，而且不用管转的是哪个方向。
+ *
+ * r 按两侧腿长各掐一半：中间那段常常很短（两点横向只差一点时），照标称半径拐会
+ * 直接拐出段外，线看着就断了。
  */
-function arcCurve(
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-): { cx: number; cy: number } {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const len = Math.hypot(dx, dy) || 1;
-  const side = from.x <= to.x ? 1 : -1;
-  const bow = 0.16 * len;
+function linkPath(from: Point, to: Point): string {
+  const pts = linkRoute(from, to);
+  const at = (p: Point) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`;
+  let d = `M ${at(pts[0])}`;
+  for (let i = 1; i < pts.length - 1; i += 1) {
+    const prev = pts[i - 1];
+    const cur = pts[i];
+    const next = pts[i + 1];
+    const r = Math.min(
+      LINK_RADIUS,
+      dist(prev, cur) / 2,
+      dist(cur, next) / 2,
+    );
+    d += ` L ${at(along(cur, prev, r))} Q ${at(cur)} ${at(along(cur, next, r))}`;
+  }
+  return `${d} L ${at(pts[pts.length - 1])}`;
+}
+
+/** 从 `at` 朝 `toward` 走 `d` 的那个点。 */
+function along(at: Point, toward: Point, d: number): Point {
+  const len = dist(at, toward) || 1;
   return {
-    cx: (from.x + to.x) / 2 + (-dy / len) * bow * side,
-    cy: (from.y + to.y) / 2 + (dx / len) * bow * side,
+    x: at.x + ((toward.x - at.x) / len) * d,
+    y: at.y + ((toward.y - at.y) / len) * d,
   };
+}
+
+function dist(a: Point, b: Point): number {
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+/**
+ * 沿一条连线等距取 `count` 个点 —— 光点就照这串点飞（见 `RestGlints`）。
+ *
+ * 按弧长等分，不按参数等分：折线三段长短悬殊，按段数平均分会让光点在短段上慢
+ * 得像卡住、在长段上一闪而过。圆角先摊成折线再一起量，所以取出来的点落在磨圆
+ * 之后的那条线上，而不是原来的硬角上。
+ */
+function sampleLink(from: Point, to: Point, count: number): Point[] {
+  const flat = flattenLink(from, to);
+  const acc: number[] = [0];
+  for (let i = 1; i < flat.length; i += 1) {
+    acc.push(acc[i - 1] + dist(flat[i - 1], flat[i]));
+  }
+  const total = acc[acc.length - 1] || 1;
+
+  const out: Point[] = [];
+  let seg = 1;
+  for (let k = 0; k <= count; k += 1) {
+    const want = (total * k) / count;
+    while (seg < flat.length - 1 && acc[seg] < want) seg += 1;
+    const segLen = acc[seg] - acc[seg - 1] || 1;
+    const t = clamp((want - acc[seg - 1]) / segLen, 0, 1);
+    out.push({
+      x: flat[seg - 1].x + (flat[seg].x - flat[seg - 1].x) * t,
+      y: flat[seg - 1].y + (flat[seg].y - flat[seg - 1].y) * t,
+    });
+  }
+  return out;
+}
+
+/** 把连线摊成一串首尾相接的点：直段照抄，圆角切成 `CORNER_STEPS` 小段。 */
+function flattenLink(from: Point, to: Point): Point[] {
+  const pts = linkRoute(from, to);
+  const out: Point[] = [pts[0]];
+  for (let i = 1; i < pts.length - 1; i += 1) {
+    const prev = pts[i - 1];
+    const cur = pts[i];
+    const next = pts[i + 1];
+    const r = Math.min(LINK_RADIUS, dist(prev, cur) / 2, dist(cur, next) / 2);
+    const a = along(cur, prev, r);
+    const b = along(cur, next, r);
+    out.push(a);
+    for (let k = 1; k <= CORNER_STEPS; k += 1) {
+      const t = k / CORNER_STEPS;
+      const u = 1 - t;
+      out.push({
+        x: u * u * a.x + 2 * u * t * cur.x + t * t * b.x,
+        y: u * u * a.y + 2 * u * t * cur.y + t * t * b.y,
+      });
+    }
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
 }
 
 /* ─────────────────────────── 光球 / 节点 ─────────────────────────── */
