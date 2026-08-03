@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import {
   DEMO_BASE,
   DEMO_VERSION_ID,
-  DEMO_VERSIONS,
   demoVersionHref,
+  useDemoVersions,
 } from "@/lib/demo-versions";
 
 /**
@@ -26,11 +26,13 @@ export function DemoVersionSwitch() {
   const live = DEMO_BASE !== "" && DEMO_VERSION_ID !== "";
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  /* 名单现取：这份产物出生时还没有的版本，也要列得出来（见 lib/demo-versions）。 */
+  const versions = useDemoVersions();
 
   /* 线上认版本号，本地没有版本号就把最新那一版当作「当前」。 */
   const current =
-    (live ? DEMO_VERSIONS.find((v) => v.id === DEMO_VERSION_ID) : undefined) ??
-    DEMO_VERSIONS[0];
+    (live ? versions.find((v) => v.id === DEMO_VERSION_ID) : undefined) ??
+    versions[0];
 
   /* 浮层挡着后面的演示控制，点别处和 Esc 都要能立刻让开。 */
   useEffect(() => {
@@ -112,7 +114,7 @@ export function DemoVersionSwitch() {
             露三条多一点，再往前翻是滚的事。
           */}
           <div className="flex max-h-[268px] flex-col gap-[6px] overflow-y-auto">
-            {DEMO_VERSIONS.map((v) => {
+            {versions.map((v) => {
               const isCurrent = v.id === current.id;
               const shell = `rounded-[10px] border px-[12px] py-[10px] text-left transition-colors ${
                 isCurrent

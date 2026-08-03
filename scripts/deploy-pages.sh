@@ -146,9 +146,18 @@ done
 # 否则一次根部署就把线上所有历史版本删干净了。
 rsync -a --delete \
   --exclude ".git" --exclude ".nojekyll" --exclude "README.md" \
-  --exclude "/v[0-9]*/" \
+  --exclude "/v[0-9]*/" --exclude "/versions.json" \
   out/ "$DEPLOY_DIR/"
 touch "$REPO_DIR/.nojekyll"
+
+# 版本名单放在站点根，线上所有版本运行时都读这一份（见 src/lib/demo-versions.ts）
+# —— 这样新发一版，旧版下次打开就看得见它，不用把老版本全部重建一遍。
+#
+# 只有 PROMOTE=1 的发布才写：重建旧版本时源码是那一版的，名单也是旧的，让它盖
+# 上去等于把新版本从所有人的切换器里抹掉。
+if [ "$PROMOTE" = "1" ]; then
+  cp src/lib/demo-versions.json "$REPO_DIR/versions.json"
+fi
 
 # 站点根的跳转页：分享出去的短链永远落到最新那一版。
 if [ -n "$VERSION" ] && [ "$PROMOTE" = "1" ]; then

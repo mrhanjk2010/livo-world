@@ -16,7 +16,22 @@
  *
  * 本地 `npm run dev` 两个都是空的：切换器照样显示（讲的时候看得见有几版），但不
  * 让跳 —— 本地只有一份代码，跳过去只会 404。
+ *
+ * ## 名单为什么要现取
+ *
+ * 表本身跟着构建走，所以一份产物天然只认得「它出生那天存在的版本」：v3 里列的
+ * 是 v1–v3，v6 发出去之后它还是只列到 v3 —— 切进旧版就等于把自己关在里面，回不
+ * 到最新那一版。以前的办法是每发一版把老版本全部重建一遍，六版之后没人记得住，
+ * 结果就是 v1 停在 v2、v2–v5 停在 v5。
+ *
+ * 所以名单改成运行时去站点根取一份 `versions.json`（发布脚本每次都会写，见
+ * `scripts/deploy-pages.sh`）：谁都读同一份，新版本发出去，所有旧版下一次打开就
+ * 看得到。构建时那份留作兜底 —— 取不到（离线、老产物、本地 dev）就还用它，至少
+ * 是当时那份名单，不至于空掉。
  */
+
+import { useEffect, useState } from "react";
+import BAKED from "./demo-versions.json";
 
 export type DemoVersion = {
   /** 目录名，也是版本号。 */
@@ -28,50 +43,78 @@ export type DemoVersion = {
   note: string;
 };
 
-/** 新的排前面 —— 第一条就是最新那一版，根目录的跳转页指向它。 */
-export const DEMO_VERSIONS: readonly DemoVersion[] = [
-  {
-    id: "v6",
-    label: "三条流水",
-    date: "08-03",
-    note: "星图退到背后当底噪，正面三张卡：世界在算、命运在涌、因果在推",
-  },
-  {
-    id: "v5",
-    label: "代码星图",
-    date: "08-03",
-    note: "连线不再是画出来的，是一行行代码写出来的，光标在上面跑",
-  },
-  {
-    id: "v4",
-    label: "布线星图",
-    date: "08-03",
-    note: "连线改走圆角折线，世界背面看着像一块还通着电的板子",
-  },
-  {
-    id: "v3",
-    label: "光点星图",
-    date: "07-31",
-    note: "静息态收成光点，挑中哪一簇才现出头像、光球与蝶形",
-  },
-  {
-    id: "v2",
-    label: "世界背面",
-    date: "07-31",
-    note: "混排成一张网、底部运转日志、新事件陆续到场、连线上有微光在跑",
-  },
-  {
-    id: "v1",
-    label: "世界命运",
-    date: "07-30",
-    note: "回响星图接入命运节点与因果链，翻转进出场",
-  },
-];
+/**
+ * 构建时那份名单，新的排前面 —— 第一条就是最新那一版，根目录的跳转页指向它。
+ *
+ * 单独存成 JSON 是为了发布脚本能原样拷到站点根当 `versions.json`：一处维护，
+ * 线上所有版本读的都是它。
+ */
+export const DEMO_VERSIONS: readonly DemoVersion[] = BAKED;
 
 /** 这份产物是哪一版；本地 dev 下是空串。 */
 export const DEMO_VERSION_ID = process.env.NEXT_PUBLIC_DEMO_VERSION ?? "";
 /** 站点根（不含版本段）；本地 dev 下是空串。 */
 export const DEMO_BASE = process.env.NEXT_PUBLIC_DEMO_BASE ?? "";
+
+/**
+ * 现在线上一共有哪些版本。
+ *
+ * 先给构建时那份，取到站点根的名单再换掉。整站只取一次 —— 名单在一次演示里不
+ * 会变，切换器也只有一个。
+ */
+export function useDemoVersions(): readonly DemoVersion[] {
+  const [versions, setVersions] = useState<readonly DemoVersion[]>(
+    () => liveVersions ?? DEMO_VERSIONS,
+  );
+
+  useEffect(() => {
+    if (DEMO_BASE === "") return; // 本地：没有站点根可取
+    let alive = true;
+    fetchVersions().then((list) => {
+      if (alive && list) setVersions(list);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return versions;
+}
+
+/** 取回来的名单，取过就不再取。 */
+let liveVersions: readonly DemoVersion[] | null = null;
+let inflight: Promise<readonly DemoVersion[] | null> | null = null;
+
+function fetchVersions(): Promise<readonly DemoVersion[] | null> {
+  if (liveVersions) return Promise.resolve(liveVersions);
+  inflight ??= fetch(`${DEMO_BASE}/versions.json`, { cache: "no-cache" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      const list = parseVersions(data);
+      if (list) liveVersions = list;
+      return list;
+    })
+    /* 取不到就沉默：兜底名单已经在屏幕上了，为一份可有可无的名单弹错没意义。 */
+    .catch(() => null);
+  return inflight;
+}
+
+function parseVersions(data: unknown): readonly DemoVersion[] | null {
+  if (!Array.isArray(data) || data.length === 0) return null;
+  const list: DemoVersion[] = [];
+  for (const raw of data) {
+    if (!raw || typeof raw !== "object") return null;
+    const v = raw as Record<string, unknown>;
+    if (typeof v.id !== "string" || typeof v.label !== "string") return null;
+    list.push({
+      id: v.id,
+      label: v.label,
+      date: typeof v.date === "string" ? v.date : "",
+      note: typeof v.note === "string" ? v.note : "",
+    });
+  }
+  return list;
+}
 
 /**
  * 某一版的地图页地址。
