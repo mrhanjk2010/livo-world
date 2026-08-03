@@ -351,7 +351,7 @@ export function EchoFieldScreen({
             世界背面
           </p>
           <p className="text-[11px] leading-[normal]" style={{ color: INK_META }}>
-            三条流水一直在跑 · 点表头收起或展开
+            三条流水一直在跑 · 点开任一条看整屏
           </p>
         </div>
 

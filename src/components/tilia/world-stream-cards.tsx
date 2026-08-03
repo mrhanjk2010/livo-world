@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   useEffect,
   useLayoutEffect,
@@ -8,6 +9,9 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
+import { usePhoneOverlayRoot } from "@/components/mobile/phone-frame";
+import { StatusBar } from "@/components/mobile/status-bar";
 import {
   CAUSE_INTERVAL_MS,
   CAUSE_LOG,
@@ -47,7 +51,8 @@ const GONE = "#7f8ba0";
  */
 const CURSOR_START = 64;
 
-type StreamId = "calc" | "destiny" | "cause";
+/** 全屏展开的进出场。 */
+const ANIM_MS = 240;
 
 /**
  * 「世界背面」上那三张流水卡。
@@ -59,31 +64,21 @@ type StreamId = "calc" | "destiny" | "cause";
  *   命运一直在涌现    算出来的东西一枚枚落地，你不在场也照样落
  *   因果链一直在推演  落下的这些又互相咬成链，谁牵出了谁
  *
- * 三张等高，因为它们是并列的三层，不是一主二次。各自能收起来 —— 收起的只剩一
- * 行表头，剩下展开的那些把空间平分：想细看某一层，就把另外两层收掉，那一层自
- * 己就长到接近整屏。所以「展开到全屏」不必再单做一套，它是收起的副产物。
+ * 三张等高，因为它们是并列的三层，不是一主二次。三张一起看到的是「世界在转」
+ * 这件事本身；要读清某一层，点开它，同一条流水占满整屏。
  *
  * 三张卡的滚动快慢是不一样的（275ms / 1.5s / 2s），这不是随手调的：算的那层是
  * 机器节拍，命运是一件件落下来的，链要顺着读完才知道在说什么。快慢本身就在说
  * 它们各自是什么东西。
  */
 export function WorldStreamCards() {
-  const [open, setOpen] = useState<Record<StreamId, boolean>>({
-    calc: true,
-    destiny: true,
-    cause: true,
-  });
-  const toggle = (id: StreamId) =>
-    setOpen((prev) => ({ ...prev, [id]: !prev[id] }));
-
   return (
     <div className="absolute bottom-[20px] left-1/2 top-[104px] z-[8] flex w-[340px] -translate-x-1/2 flex-col gap-[10px]">
       <StreamCard
         cmd="world.tail -f"
         title="世界一直在算"
+        note="这里只有正在发生的那几十行"
         accent={GREEN}
-        open={open.calc}
-        onToggle={() => toggle("calc")}
         interval={RUNTIME_INTERVAL_MS}
         slowInterval={RUNTIME_SLOW_INTERVAL_MS}
         renderRow={(i) => <CalcRow i={i} />}
@@ -91,9 +86,8 @@ export function WorldStreamCards() {
       <StreamCard
         cmd="destiny.watch"
         title="命运一直在涌现"
+        note="起、酝、定、散 —— 你不在场也照样落"
         accent={BLUE}
-        open={open.destiny}
-        onToggle={() => toggle("destiny")}
         interval={DESTINY_INTERVAL_MS}
         slowInterval={DESTINY_SLOW_INTERVAL_MS}
         renderRow={(i) => <DestinyRow i={i} />}
@@ -101,9 +95,8 @@ export function WorldStreamCards() {
       <StreamCard
         cmd="cause.trace"
         title="因果链一直在推演"
+        note="一条链从因走到果，末一节是果"
         accent={AMBER}
-        open={open.cause}
-        onToggle={() => toggle("cause")}
         interval={CAUSE_INTERVAL_MS}
         slowInterval={CAUSE_SLOW_INTERVAL_MS}
         renderRow={(i) => <CauseRow i={i} />}
@@ -125,18 +118,16 @@ export function WorldStreamCards() {
  * 仍然读得清，而底下确实有东西在动。填满黑当然更好读，代价是这一屏只剩三张浮
  * 在虚空里的卡，星图白转了。
  *
- * 展开的卡 `flex-1`，收起的只留表头 —— 剩下的空间由展开的那几张平分，这是「三
- * 张等高」和「各自可收」同一条规则的两个面。
+ * 整张卡都是那个「展开」按钮，右上角那句 `[展开]` 只是它的标签 —— 卡上没有别
+ * 的可点的东西，把命中区做小反而是给自己找麻烦。
  *
- * 行数不写死，按实测高度算：手机框高是 min(100dvh, 812)，收起一张之后别的卡也
- * 会长高，两处都得跟着变。
+ * 行数不写死，按实测高度算：手机框高是 min(100dvh, 812)。
  */
 function StreamCard({
   cmd,
   title,
+  note,
   accent,
-  open,
-  onToggle,
   interval,
   slowInterval,
   renderRow,
@@ -144,16 +135,20 @@ function StreamCard({
   /** 表头左边那截命令行的样子。 */
   cmd: string;
   title: string;
+  /** 展开后副标题里那半句：这一条流水到底在说什么。 */
+  note: string;
   accent: string;
-  open: boolean;
-  onToggle: () => void;
   interval: number;
   slowInterval: number;
   renderRow: (i: number) => ReactNode;
 }) {
   const { cursor, motion } = useStreamCursor(interval, slowInterval);
+  const [expanded, setExpanded] = useState(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [rows, setRows] = useState(6);
+  /* 顶一格的时长跟着节奏走，但不超过一记轻推：慢的那两张要是滑上一秒，读起来
+     就成了在飘，而不是又落下一行。 */
+  const slide = Math.min(220, Math.round(interval * 0.5));
 
   useLayoutEffect(() => {
     const el = boxRef.current;
@@ -164,47 +159,186 @@ function StreamCard({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [open]);
+  }, []);
 
   return (
-    <section
-      className={`flex min-h-0 flex-col overflow-clip rounded-[16px] border px-[14px] pb-[10px] pt-[9px] backdrop-blur-[20px] ${
-        open ? "flex-1" : "shrink-0"
-      }`}
-      style={{
-        borderColor: `${accent}24`,
-        background: "rgba(0, 0, 0, 0.6)",
-      }}
-      aria-label={title}
-    >
+    <>
       <button
         type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="flex shrink-0 items-center justify-between gap-[8px] font-mono text-[9px] leading-none transition-opacity duration-200 hover:opacity-80 active:opacity-60"
+        onClick={() => setExpanded(true)}
+        aria-label={`${title}：展开看整屏`}
+        className="flex min-h-0 flex-1 flex-col overflow-clip rounded-[16px] border px-[14px] pb-[10px] pt-[9px] text-left backdrop-blur-[20px] transition-transform duration-200 active:scale-[0.99]"
+        style={{
+          borderColor: `${accent}24`,
+          background: "rgba(0, 0, 0, 0.6)",
+        }}
       >
-        <span className="truncate" style={{ color: `${accent}66` }}>
-          $ {cmd} · {title}
-        </span>
-        <span className="shrink-0" style={{ color: `${accent}99` }}>
-          {open ? "[收起]" : "[展开]"}
-        </span>
-      </button>
+        <div className="flex shrink-0 items-center justify-between gap-[8px] font-mono text-[9px] leading-none">
+          <span className="truncate" style={{ color: `${accent}66` }}>
+            $ {cmd} · {title}
+          </span>
+          <span className="shrink-0" style={{ color: `${accent}99` }}>
+            [展开]
+          </span>
+        </div>
 
-      {open ? (
         <div ref={boxRef} className="mt-[6px] min-h-0 flex-1">
           <Stream
             rows={rows}
             cursor={cursor}
             motion={motion}
-            /* 顶一格的时长跟着节奏走，但不超过一记轻推：慢的那两张要是滑
-               上一秒，读起来就成了在飘，而不是又落下一行。 */
-            slide={Math.min(220, Math.round(interval * 0.5))}
+            slide={slide}
             renderRow={renderRow}
           />
         </div>
-      ) : null}
-    </section>
+      </button>
+
+      <StreamSheet
+        open={expanded}
+        cmd={cmd}
+        title={title}
+        note={note}
+        accent={accent}
+        cursor={cursor}
+        motion={motion}
+        slide={slide}
+        renderRow={renderRow}
+        onClose={() => setExpanded(false)}
+      />
+    </>
+  );
+}
+
+/* ─────────────────────────── 全屏展开 ─────────────────────────── */
+
+/**
+ * 一条流水的整屏。
+ *
+ * 展开只做一件事：把窗口开大。同一条流水、同一个游标（`cursor` 从卡片传进
+ * 来），所以点开的那一瞬不会跳号 —— 是同一份账摊开来看，不是另一屏。
+ *
+ * 不能往回翻：这是 `tail -f`，只有正在发生的那几十行。要看世界记下来的事，那
+ * 是「世界动态」的活儿。
+ */
+function StreamSheet({
+  open,
+  cmd,
+  title,
+  note,
+  accent,
+  cursor,
+  motion,
+  slide,
+  renderRow,
+  onClose,
+}: {
+  open: boolean;
+  cmd: string;
+  title: string;
+  note: string;
+  accent: string;
+  cursor: number;
+  motion: boolean;
+  slide: number;
+  renderRow: (i: number) => ReactNode;
+  onClose: () => void;
+}) {
+  const [mounted, setMounted] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const [rows, setRows] = useState(24);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      let r2 = 0;
+      const r1 = requestAnimationFrame(() => {
+        r2 = requestAnimationFrame(() => setVisible(true));
+      });
+      return () => {
+        cancelAnimationFrame(r1);
+        cancelAnimationFrame(r2);
+      };
+    }
+    if (!mounted) return;
+    setVisible(false);
+    const t = setTimeout(() => setMounted(false), ANIM_MS);
+    return () => clearTimeout(t);
+  }, [open, mounted]);
+
+  useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const measure = () =>
+      setRows(Math.max(8, Math.floor(el.clientHeight / LINE_H)));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [mounted]);
+
+  const overlayRoot = usePhoneOverlayRoot();
+  if (!mounted || !overlayRoot) return null;
+
+  /* 盖在「世界背面」那一层（z-66）之上：展开的是它上面的一屏，不是它的一部分。 */
+  return createPortal(
+    <div className="pointer-events-auto absolute inset-0 z-[72]">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={`absolute inset-0 flex flex-col bg-black/[0.96] transition-opacity duration-[240ms] ease-out ${
+          visible ? "opacity-100" : "opacity-0"
+        }`}
+      >
+        <StatusBar />
+
+        <header className="flex shrink-0 items-start justify-between px-[16px] pb-[14px] pt-[9.5px]">
+          <div className="flex flex-col gap-[3px]">
+            <h1
+              className="font-mono text-[15px] leading-none"
+              style={{ color: accent }}
+            >
+              {cmd}
+            </h1>
+            <p
+              className="font-mono text-[10px] leading-none"
+              style={{ color: `${accent}73` }}
+            >
+              {title} · {note}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭"
+            className="flex size-[29px] shrink-0 items-center justify-center rounded-full bg-black/30 backdrop-blur-[23px] transition-transform duration-200 active:scale-90"
+          >
+            <Image
+              src="/figma/tilia/feed/icon-close.svg"
+              alt=""
+              width={29}
+              height={29}
+              className="size-full"
+            />
+          </button>
+        </header>
+
+        {/* 流水占满剩下的一屏；行数由这块的实测高度决定。 */}
+        <div ref={boxRef} className="min-h-0 flex-1 px-[16px] pb-[18px]">
+          <Stream
+            rows={rows}
+            cursor={cursor}
+            motion={motion}
+            slide={slide}
+            size={12}
+            renderRow={renderRow}
+          />
+        </div>
+      </section>
+    </div>,
+    overlayRoot,
   );
 }
 
@@ -222,12 +356,15 @@ function Stream({
   cursor,
   motion,
   slide,
+  size = 11,
   renderRow,
 }: {
   rows: number;
   cursor: number;
   motion: boolean;
   slide: number;
+  /** 字号：卡片上 11，展开后 12。行高不跟着变，两处对得上才不会跳。 */
+  size?: number;
   renderRow: (i: number) => ReactNode;
 }) {
   const keep = rows + 1;
@@ -251,8 +388,12 @@ function Stream({
           <div
             key={i}
             /* 越旧越淡：顶上去的那几行自己就退场了。 */
-            style={{ height: LINE_H, opacity: 0.3 + (k / (keep - 1)) * 0.7 }}
-            className="flex items-center gap-[5px] overflow-hidden whitespace-nowrap font-mono text-[11px] leading-[18px]"
+            style={{
+              height: LINE_H,
+              fontSize: size,
+              opacity: 0.3 + (k / (keep - 1)) * 0.7,
+            }}
+            className="flex items-center gap-[5px] overflow-hidden whitespace-nowrap font-mono leading-[18px]"
           >
             {renderRow(i)}
           </div>
