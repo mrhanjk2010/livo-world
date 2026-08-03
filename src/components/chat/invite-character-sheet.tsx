@@ -19,8 +19,8 @@ export type InviteStatus = "present" | "invite" | "inviting" | "declined";
  * The four canonical friends shown in the invite sheet. Order + default
  * locations mirror the Figma spec; live POIs from `useFriendsStatus`
  * override the defaults whenever the map runtime is mounted (i.e. when
- * the chat is reached as an intercepted modal). On a direct page load
- * the FriendsStatusProvider isn't present, so we fall back to these
+ * the chat was entered from the map, as a layer over it). On a direct
+ * page load the FriendsStatusProvider isn't present, so we fall back to these
  * "home POI" labels — same place each friend starts the day at on the
  * map's `WanderingFriends` runtime.
  */
@@ -104,9 +104,9 @@ export function InviteCharacterSheet({
     return () => window.removeEventListener("keydown", onKey);
   }, [mounted, onClose]);
 
-  // Portal target is the enclosing PhoneFrame's overlay node — when the
-  // chat opens as an intercepted modal, that's the chat's own root
-  // (not the map's underneath), so the sheet stacks above the chat.
+  // Portal target is the enclosing overlay scope — when the chat opens
+  // as a layer over the map, that's the chat's own slot (not the map's
+  // underneath), so the sheet stacks above the chat.
   const overlayRoot = usePhoneOverlayRoot();
 
   // Tick once per second while the sheet is mounted so countdown chips

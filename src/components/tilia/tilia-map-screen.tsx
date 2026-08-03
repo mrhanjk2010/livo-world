@@ -14,7 +14,8 @@ import {
 import { TiliaTopBar } from "@/components/tilia/tilia-top-bar";
 import { TrainMapScreen } from "@/components/tilia/train-map-screen";
 import { WorldFeedCard } from "@/components/tilia/world-feed-card";
-import { useTransitionNavigate } from "@/components/mobile/transition-shell";
+import { DrillLayer } from "@/components/mobile/drill-layer";
+import { EnterLayer } from "@/components/mobile/enter-layer";
 import { WorldSwitcherSheet } from "@/components/worlds/world-switcher-sheet";
 import {
   DESTINY_MARKERS,
@@ -33,7 +34,7 @@ import {
   RESPOND_COOLDOWN_MS,
   voiceToFeedItem,
 } from "@/lib/tilia/respond";
-import { roomChatHref } from "@/lib/tilia/room-group-chat";
+import { roomChatLocation } from "@/lib/tilia/room-group-chat";
 import { useStoryFlags } from "@/components/tilia/story-flags-context";
 import {
   buildOneWeekLaterMarkers,
@@ -45,6 +46,7 @@ import {
   CAB_REVEAL_FEED_TEXT,
   CAB_SCRIPT_ID,
 } from "@/lib/tilia/cab-carriage";
+import { enterPlace } from "@/lib/mobile/drill";
 import { ROOM_BY_ID, type Room } from "@/lib/tilia/train";
 import type { FeedItem } from "@/lib/tilia/world-feed";
 
@@ -62,7 +64,6 @@ const ECHO_FIELD_STORIES = [...ECHO_ARCHIVE, ...SEED_ECHO_STORIES];
  * 点房间坐标 → 直接进该地点群聊；命运标记仍走命运进入半层。
  */
 export function TiliaMapScreen() {
-  const navigate = useTransitionNavigate();
   const {
     resetConcertDestinyCycle,
     weekLaterArrived,
@@ -109,10 +110,10 @@ export function TiliaMapScreen() {
   const selectRoom = useCallback(
     (room: Room) => {
       focusOnRoom(room);
-      // 点房间坐标 → 直接进该地点群聊。
-      navigate(roomChatHref(room));
+      // 点房间坐标 → 直接进该地点群聊。原点由 RoomPill 自己报。
+      enterPlace({ location: roomChatLocation(room), mode: "free" });
     },
-    [focusOnRoom, navigate],
+    [focusOnRoom],
   );
 
   /** 命运半层里点一条命运：把地图移到它发生的房间。世界动态卡不再走这条。 */
@@ -347,68 +348,73 @@ export function TiliaMapScreen() {
   ]);
 
   return (
-    <div className="absolute inset-0 overflow-hidden bg-black">
-      <TrainMapScreen
-        selectedRoomId={focusRoom?.id ?? null}
-        focusRoom={focusRoom}
-        focusId={focusId}
-        onSelectRoom={selectRoom}
-        onOpenDestinyMarker={openDestinyMarker}
-        onOpenEchoMarker={openEchoMarker}
-        spawnedDestinies={spawnedDestinies}
-      />
+    <>
+      <DrillLayer className="absolute inset-0 overflow-hidden bg-black">
+        <TrainMapScreen
+          selectedRoomId={focusRoom?.id ?? null}
+          focusRoom={focusRoom}
+          focusId={focusId}
+          onSelectRoom={selectRoom}
+          onOpenDestinyMarker={openDestinyMarker}
+          onOpenEchoMarker={openEchoMarker}
+          spawnedDestinies={spawnedDestinies}
+        />
 
-      <TiliaTopBar />
+        <TiliaTopBar />
 
-      <WorldFeedCard
-        onOpenDestiny={() => setDestinyOpen(true)}
-        onOpenRespond={() => setRespondOpen(true)}
-        onOpenBackside={() => setEchoFieldOpen(true)}
-        cooldownRemainingSec={cooldownRemainingSec}
-        voiceItem={voiceItem}
-        clock={worldClock}
-      />
+        <WorldFeedCard
+          onOpenDestiny={() => setDestinyOpen(true)}
+          onOpenRespond={() => setRespondOpen(true)}
+          onOpenBackside={() => setEchoFieldOpen(true)}
+          cooldownRemainingSec={cooldownRemainingSec}
+          voiceItem={voiceItem}
+          clock={worldClock}
+        />
 
-      <TiliaBottomNav
-        active={tab}
-        onSelect={setTab}
-        onOpenWorldSwitcher={() => setSwitcherOpen(true)}
-      />
+        <TiliaBottomNav
+          active={tab}
+          onSelect={setTab}
+          onOpenWorldSwitcher={() => setSwitcherOpen(true)}
+        />
 
-      <DestinySheet
-        open={destinyOpen}
-        onClose={() => setDestinyOpen(false)}
-        onPickItem={pickFeedItem}
-      />
+        <DestinySheet
+          open={destinyOpen}
+          onClose={() => setDestinyOpen(false)}
+          onPickItem={pickFeedItem}
+        />
 
-      <DestinyEnterSheet
-        marker={enterDestiny}
-        onClose={() => setEnterDestiny(null)}
-      />
+        <DestinyEnterSheet
+          marker={enterDestiny}
+          onClose={() => setEnterDestiny(null)}
+        />
 
-      <EchoSheet story={activeEcho} onClose={() => setActiveEcho(null)} />
+        <EchoSheet story={activeEcho} onClose={() => setActiveEcho(null)} />
 
-      {/* 全屏「世界背面」，入口是世界动态卡表头右上那枚呼吸指示 */}
-      <EchoFieldScreen
-        open={echoFieldOpen}
-        stories={ECHO_FIELD_STORIES}
-        loose={LOOSE_EVENTS}
-        destinies={DESTINY_CHAIN}
-        onClose={() => setEchoFieldOpen(false)}
-      />
+        {/* 全屏「世界背面」，入口是世界动态卡表头右上那枚呼吸指示 */}
+        <EchoFieldScreen
+          open={echoFieldOpen}
+          stories={ECHO_FIELD_STORIES}
+          loose={LOOSE_EVENTS}
+          destinies={DESTINY_CHAIN}
+          onClose={() => setEchoFieldOpen(false)}
+        />
 
-      <WorldSwitcherSheet
-        open={switcherOpen}
-        onClose={() => setSwitcherOpen(false)}
-      />
+        <WorldSwitcherSheet
+          open={switcherOpen}
+          onClose={() => setSwitcherOpen(false)}
+        />
 
-      <RespondOverlay
-        open={respondOpen}
-        onClose={() => setRespondOpen(false)}
-        onSend={handleRespondSend}
-      />
+        <RespondOverlay
+          open={respondOpen}
+          onClose={() => setRespondOpen(false)}
+          onSend={handleRespondSend}
+        />
 
-      <RespondDeliverOverlay open={deliverOpen} onDone={handleDeliverDone} />
-    </div>
+        <RespondDeliverOverlay open={deliverOpen} onDone={handleDeliverDone} />
+      </DrillLayer>
+
+      {/* 进某个地点的群聊 —— 页内浮层，从被点的那枚地标长开来盖住上面这一层 */}
+      <EnterLayer />
+    </>
   );
 }

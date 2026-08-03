@@ -1,7 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type {
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
+import { markDrillOrigin } from "@/lib/mobile/drill";
 import type { Room } from "@/lib/tilia/train";
 
 /**
@@ -9,6 +13,9 @@ import type { Room } from "@/lib/tilia/train";
  *
  * 严格照设计稿 `3378:4321`：半透明黑底 + 20px 背景模糊 + 1px 纯白描边
  * + 白色外发光。红点提醒已去掉，命运入口改由命运演式标记承担。
+ *
+ * 点它进的是这个地方的群聊，进法是从这枚 pill 长开来（见 `markDrillOrigin`）
+ * —— 所以起点由 pill 自己报：只有它知道自己这会儿被移到了屏上哪一处。
  */
 export function RoomPill({
   room,
@@ -23,11 +30,16 @@ export function RoomPill({
     e.stopPropagation();
   };
 
+  const select = (e: ReactMouseEvent<HTMLButtonElement>) => {
+    markDrillOrigin(e.currentTarget);
+    onSelect(room);
+  };
+
   return (
     <button
       type="button"
       onPointerDown={swallowPointer}
-      onClick={() => onSelect(room)}
+      onClick={select}
       aria-label={`${room.name}`}
       className={`absolute z-20 inline-flex -translate-x-1/2 -translate-y-1/2 items-center gap-[3px] rounded-[100px] border border-[#fffdfc] bg-black/20 px-[6px] py-[2px] backdrop-blur-[20px] transition-transform duration-150 active:scale-95 ${
         selected ? "scale-[1.08]" : ""

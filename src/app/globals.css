@@ -147,10 +147,22 @@ body {
 }
 
 /*
+ * 钻进下一层的两层 —— 长开来的聊天（EnterLayer）和往后退的地图
+ * （DrillLayer）—— 缩放都写在内联 style 里，因为原点是点出来的、每次不
+ * 一样。开了「减少动态效果」就把这一路缩放整个抹掉，只剩淡入淡出。
+ *
+ * 用 !important 是没得选：要盖的就是内联样式。
+ */
+@media (prefers-reduced-motion: reduce) {
+  .livo-drill {
+    transform: none !important;
+  }
+}
+
+/*
  * Fade keyframe used by <PageTransition> for lateral top-level route
- * changes (e.g. `/map` ↔ `/worlds`). Chat transitions are handled by
- * ChatModal's intercepting-route overlay, which animates via inline
- * transforms and doesn't need a keyframe.
+ * changes (e.g. `/map` ↔ `/worlds`). 进群聊不经过这里：那层浮层的缩放写在
+ * 内联 style 里（原点每次不同），用不上 keyframe。
  */
 @keyframes livo-fade-in {
   from { opacity: 0; }

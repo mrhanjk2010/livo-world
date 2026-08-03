@@ -50,11 +50,9 @@ export function ChatScreen({
   /** "free" = 自由聊天 (default). "event" = 事件聊天. */
   mode?: "free" | "event";
   /**
-   * Override for the header back button. When rendered as an
-   * intercepted modal we want the back tap to trigger the modal's
-   * outgoing slide first, then navigate — `ChatModal`/`EventModal`
-   * pass a handler that does exactly that. Falls back to
-   * `router.back()` for the standalone route.
+   * Override for the header back button. 作为页内浮层打开时，返回要先把这
+   * 一层缩回去再收场 —— `EnterLayer` 传的就是干这个的 handler。独立路由下
+   * 没人传，退回 `router.back()`。
    */
   onBack?: () => void;
 }) {

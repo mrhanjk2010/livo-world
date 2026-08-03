@@ -11,6 +11,7 @@
  * 头像互斥：进了命运的角色不再在地图走动。
  */
 
+import type { EnterTarget } from "@/lib/mobile/drill";
 import { resolveOnSegment } from "@/lib/tilia/train-segments";
 import type { FeedSpeaker } from "@/lib/tilia/world-feed";
 
@@ -184,16 +185,14 @@ export function destinyEnterLabel(kind: DestinyKind): string {
 }
 
 /**
- * 进入聊天的路由：
- *   注定 → `/event/…`（事件聊，有开场）
- *   潜在 → `/chat/…`（自由聊 / 红情境）
- * 单聊 vs 群聊由场景成员数决定，路由形态相同。
+ * 进入这枚命运时要开哪一种聊天：
+ *   注定 → 事件聊（有开场）
+ *   潜在 → 自由聊 / 红情境
+ * 地点群聊（room:…）不分命运类型，一律自由聊。
+ * 单聊 vs 群聊由场景成员数决定，两者形态相同。
  */
-export function destinyChatHref(marker: DestinyMarkerDef): string {
-  const loc = encodeURIComponent(marker.chatLocation);
-  // 地点群聊（room:…）统一走 /chat；其余按命运类型分流。
-  if (marker.chatLocation.startsWith("room:")) {
-    return `/chat/${loc}`;
-  }
-  return marker.kind === "destined" ? `/event/${loc}` : `/chat/${loc}`;
+export function destinyChatTarget(marker: DestinyMarkerDef): EnterTarget {
+  const location = marker.chatLocation;
+  if (location.startsWith("room:")) return { location, mode: "free" };
+  return { location, mode: marker.kind === "destined" ? "event" : "free" };
 }

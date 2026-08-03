@@ -28,10 +28,10 @@ export function ChatRouteBody({
     isDestinyChatLocation(location) || isRoomGroupChatLocation(location);
 
   /**
-   * 从 modal 里进来时 `onBack` 由 `ChatModal` 给（router.back）。但硬加载
-   * 或开发期整页刷新会落到非拦截的独立路由上，那时没人传 onBack ——
-   * 不兜底的话左上角「返回」按下去毫无反应，人就被关在聊天里出不去。
-   * 有历史就退回去，没有就送回对应世界的地图。
+   * 从地图钻进来时 `onBack` 由 `EnterLayer` 给。但直接打开 `/chat/…` 或整页
+   * 刷新会落到独立路由上，那时没人传 onBack —— 不兜底的话左上角「返回」按下
+   * 去毫无反应，人就被关在聊天里出不去。有历史就退回去，没有就送回对应世界
+   * 的地图。
    */
   const fallbackBack = useCallback(() => {
     if (typeof window !== "undefined" && window.history.length > 1) {

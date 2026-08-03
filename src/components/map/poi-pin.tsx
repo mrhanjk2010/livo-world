@@ -4,15 +4,16 @@ import Image from "next/image";
 import { useEffect, useRef } from "react";
 import { useEventSheet } from "@/components/map/event-sheet-context";
 import { useMapFocusOptional } from "@/components/map/map-focus-context";
-import { useTransitionNavigate } from "@/components/mobile/transition-shell";
+import { enterPlace } from "@/lib/mobile/drill";
 
 /**
  * Anchored POI chip on the map (e.g. 图书馆 / 食堂 / 教室).
  *
- * In the default state tapping the pill opens the free-chat page for
- * that location — every group chat in this product is tied to a
- * place, so the POI label is both a navigational landmark and the
- * "entry door" to the local group conversation.
+ * In the default state tapping the pill opens the free chat for that
+ * location — every group chat in this product is tied to a place, so
+ * the POI label is both a navigational landmark and the "entry door"
+ * to the local group conversation. The chat grows out of this very
+ * chip; see `lib/mobile/drill`.
  *
  * When `EventSheetContext` says this POI has a live event the pin
  * grows a pulsing red heart badge, and **both the pill AND the heart
@@ -44,7 +45,6 @@ export function POIPin({
   yPct: number;
   label: string;
 }) {
-  const navigate = useTransitionNavigate();
   const { open: openEventSheet, has } = useEventSheet();
   const hasEvent = has(label);
   const focus = useMapFocusOptional();
@@ -89,7 +89,8 @@ export function POIPin({
     if (hasEvent) {
       openEventSheet(label);
     } else {
-      navigate(`/chat/${encodeURIComponent(label)}`);
+      // 聊天从这枚 pin 长开来（见 lib/mobile/drill）。
+      enterPlace({ location: label, mode: "free" }, buttonRef.current);
     }
   };
 

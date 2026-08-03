@@ -33,19 +33,15 @@
 #
 # 这套流程之前是手工敲的，每次都要记住四件容易忘的事，所以固化成脚本：
 #
-#   1. `output: 'export'` 不支持并行/拦截路由 —— `src/app/@modal` 那套
-#      聊天浮层会让 build 直接失败（missing generateStaticParams）。所以
-#      导出前要把 `@modal` 整个挪出 `src/app`，并临时换一个不带 modal
-#      插槽的 layout；导出完再放回去。挪的目标目录必须在 `src/app` 之外，
-#      否则 Next 仍然会去扫它。
-#      连 `src/app/default.tsx` 也必须一起挪走 —— 它只是给拦截路由软导航
-#      兜底的。留着它的话 build 会「成功」，日志还照样打 Exporting (12/12)，
-#      但 `out/` 里只会落下 404.html，别的页面一个都不写出来（HTML 停在
-#      `.next/server/app/` 里）。这个坑没有任何报错提示，所以导出后一定
-#      要检查 out/index.html 在不在，下面有断言。
-#      `src/app/api` 也一样：动态 route handler 在 export 下同样会让产物
-#      只剩 404.html（同样不报错）。演示里那个 destiny-from-voice 接口有
-#      本地兜底（generateDestinyImpactLocal），静态站少了它照样能演。
+#   1. `src/app/api` 要挪走：动态 route handler 在 export 下会让产物只剩
+#      404.html，别的页面一个都不写出来（HTML 停在 `.next/server/app/`
+#      里），而且不报错 —— build 照样打 ✓ Exporting (12/12)。所以导出后
+#      一定要检查 out/index.html 在不在，下面有断言。演示里那个
+#      destiny-from-voice 接口有本地兜底（generateDestinyImpactLocal），
+#      静态站少了它照样能演。
+#      （聊天浮层曾经也在这一条里：它以前是 `src/app/@modal` 那套拦截路由，
+#      export 不支持，每次发布都得把整个插槽搬出去 —— 于是线上根本没有进
+#      群聊的动效。现在浮层归地图页自己管，见 lib/mobile/drill，不用搬了。）
 #   2. Pages 部署在子路径下，需要 basePath / assetPrefix。
 #   3. `/figma/`、`/media/` 这些写死在组件里的绝对路径，next/image 之外
 #      的引用（CSS url()、预加载、纯 <img>）不会自动带上 basePath，
@@ -98,14 +94,10 @@ fi
 
 restore() {
   [ -d "$STASH/api" ] && rm -rf "src/app/api" && mv "$STASH/api" "src/app/api"
-  [ -d "$STASH/@modal" ] && rm -rf "src/app/@modal" && mv "$STASH/@modal" "src/app/@modal"
-  [ -f "$STASH/default.tsx" ] && mv -f "$STASH/default.tsx" "src/app/default.tsx"
-  [ -f "$STASH/layout.tsx" ] && mv -f "$STASH/layout.tsx" "src/app/layout.tsx"
   [ -f "$STASH/next.config.ts" ] && mv -f "$STASH/next.config.ts" "next.config.ts"
   rmdir "$STASH" 2>/dev/null || true
-  # 导出时 @modal 被挪走了，Next 因此把 .next/types 里的 LayoutProps 写成
-  # 「没有 modal 插槽」的版本。留着它，紧接着跑 npm run typecheck 会报
-  # layout.tsx 缺 modal —— 源码其实没问题。所以连 .next 一起清掉。
+  # .next 是按「少了 api 路由」那份源码算出来的，留着会让紧接着的 dev /
+  # typecheck 拿到对不上的类型。
   rm -rf .next
 }
 # build 失败也要把源码模式恢复回来，否则本地 dev 会带着 export 配置跑。
@@ -113,10 +105,7 @@ trap restore EXIT
 
 mkdir -p "$STASH"
 cp next.config.ts "$STASH/next.config.ts"
-cp src/app/layout.tsx "$STASH/layout.tsx"
 [ -d src/app/api ] && mv src/app/api "$STASH/api"
-[ -d src/app/@modal ] && mv src/app/@modal "$STASH/@modal"
-[ -f src/app/default.tsx ] && mv src/app/default.tsx "$STASH/default.tsx"
 
 cat > next.config.ts <<CONFIG
 import type { NextConfig } from "next";
@@ -132,18 +121,6 @@ const nextConfig: NextConfig = {
 
 export default nextConfig;
 CONFIG
-
-# 去掉 modal 插槽的 layout。@modal 已经挪走，留着插槽会拿到 undefined。
-python3 - <<'PY'
-import re, pathlib
-p = pathlib.Path("src/app/layout.tsx")
-s = p.read_text()
-s = re.sub(r"\n\s*modal,", "", s, count=1)
-s = re.sub(r"\n\s*/\*\*(?:(?!\*/).)*?\*/\n\s*modal: React\.ReactNode;", "", s, count=1, flags=re.S)
-s = re.sub(r"\n\s*modal: React\.ReactNode;", "", s, count=1)
-s = re.sub(r"\n\s*\{modal\}", "", s, count=1)
-p.write_text(s)
-PY
 
 rm -rf out .next
 # 版本号进构建：产物里的版本切换器靠它认出自己是哪一版，以及去别版的地址前缀。

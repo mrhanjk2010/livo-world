@@ -29,18 +29,15 @@ export const metadata: Metadata = {
   description: "Demo scaffolded for Figma → code workflow",
 };
 
+/**
+ * 这里没有 `@modal` 插槽了 —— 进群聊的那层浮层归地图页自己管
+ *（`components/mobile/enter-layer`），不再靠拦截路由。原因见
+ * `lib/mobile/drill`：拦截路由在静态导出下用不了，线上因此一直是秃的。
+ */
 export default function RootLayout({
   children,
-  modal,
 }: {
   children: React.ReactNode;
-  /**
-   * Parallel `@modal` slot. Used by the intercepting-route overlay for
-   * `/chat/[location]` / `/event/[location]` so the underlying map
-   * (rendered in `children`) stays mounted while the chat slides in
-   * on top of it.
-   */
-  modal: React.ReactNode;
 }) {
   return (
     <html
@@ -51,7 +48,6 @@ export default function RootLayout({
       <body className="min-h-dvh antialiased">
         <StoryFlagsProvider>
           <PageTransition>{children}</PageTransition>
-          {modal}
         </StoryFlagsProvider>
       </body>
     </html>

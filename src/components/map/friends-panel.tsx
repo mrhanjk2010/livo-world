@@ -5,7 +5,7 @@ import { type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useActivitySheet } from "@/components/map/activity-sheet-context";
 import { usePhoneOverlayRoot } from "@/components/mobile/phone-frame";
-import { useTransitionNavigate } from "@/components/mobile/transition-shell";
+import { enterPlace } from "@/lib/mobile/drill";
 
 /**
  * One row of the "查看角色" panel — a friend plus their current POI
@@ -57,7 +57,6 @@ type Props = {
 export function FriendsPanel({ open, onClose, roster }: Props) {
   const overlayEl = usePhoneOverlayRoot();
   const { open: openSheet } = useActivitySheet();
-  const navigate = useTransitionNavigate();
 
   if (!open || !overlayEl) return null;
 
@@ -70,14 +69,14 @@ export function FriendsPanel({ open, onClose, roster }: Props) {
 
   /**
    * Tapping a friend's nav-arrow jumps straight to their place-based
-   * free-chat. We route to `chatLocation` (not `location`) so that when
-   * a friend is walking the chat opens at their destination POI
-   * instead of the literal "路上" — every group chat in the product is
-   * anchored to a real place.
+   * free chat. We open `chatLocation` (not `location`) so that when a
+   * friend is walking the chat opens at their destination POI instead
+   * of the literal "路上" — every group chat in the product is anchored
+   * to a real place. The chat grows out of the arrow that was tapped.
    */
-  const goToFriend = (item: FriendRosterItem) => {
+  const goToFriend = (item: FriendRosterItem, from: Element) => {
     onClose();
-    navigate(`/chat/${encodeURIComponent(item.chatLocation)}`);
+    enterPlace({ location: item.chatLocation, mode: "free" }, from);
   };
 
   return createPortal(
@@ -106,7 +105,7 @@ export function FriendsPanel({ open, onClose, roster }: Props) {
               key={item.name}
               item={item}
               onShowActivity={() => showActivity(item.name)}
-              onGoToFriend={() => goToFriend(item)}
+              onGoToFriend={(e) => goToFriend(item, e.currentTarget)}
             />
           ))}
         </div>
@@ -124,7 +123,7 @@ function FriendRow({
 }: {
   item: FriendRosterItem;
   onShowActivity: () => void;
-  onGoToFriend: () => void;
+  onGoToFriend: (e: MouseEvent) => void;
 }) {
   return (
     <div className="flex items-center gap-[10px] p-[8px]">
@@ -169,7 +168,7 @@ function ActionIconButton({
 }: {
   src: string;
   alt: string;
-  onClick?: () => void;
+  onClick?: (e: MouseEvent) => void;
 }) {
   return (
     <button

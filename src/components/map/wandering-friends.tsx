@@ -9,7 +9,7 @@ import {
   type FriendStatus,
 } from "@/components/map/friends-status-context";
 import { usePhoneOverlayRoot } from "@/components/mobile/phone-frame";
-import { useTransitionNavigate } from "@/components/mobile/transition-shell";
+import { enterPlace } from "@/lib/mobile/drill";
 
 export type POIRef = {
   label: string;
@@ -723,7 +723,6 @@ function ActionBubble({
     containerWidth,
   } = active;
   const { open: openActivity } = useActivitySheet();
-  const navigate = useTransitionNavigate();
   const anchorCenterX = anchorLeft + anchorWidth / 2;
   // Flip to the left side of the avatar once its center crosses past ~55%
   // of the phone width; otherwise place on the right. Keeps the sheet
@@ -785,9 +784,9 @@ function ActionBubble({
       <ActionRow
         icon={<NavArrowIcon />}
         label="去TA这里"
-        onClick={() => {
+        onClick={(e) => {
           onClose();
-          navigate(`/chat/${encodeURIComponent(currentLocation)}`);
+          enterPlace({ location: currentLocation, mode: "free" }, e.currentTarget);
         }}
       />
       <ActionRow icon={<ChatBubbleIcon />} label="单聊" />
@@ -802,7 +801,7 @@ function ActionRow({
 }: {
   icon: React.ReactNode;
   label: string;
-  onClick?: () => void;
+  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
 }) {
   return (
     <button

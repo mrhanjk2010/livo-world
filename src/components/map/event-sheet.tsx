@@ -11,7 +11,7 @@ import {
 import { createPortal } from "react-dom";
 import { useEventSheet } from "@/components/map/event-sheet-context";
 import { usePhoneOverlayRoot } from "@/components/mobile/phone-frame";
-import { useTransitionNavigate } from "@/components/mobile/transition-shell";
+import { enterPlace, markDrillOrigin } from "@/lib/mobile/drill";
 import { getMapEvent } from "@/lib/map-events";
 import { getChatScene } from "@/lib/chat-scenes";
 
@@ -96,7 +96,6 @@ function SheetBody({
 }) {
   const event = getMapEvent(location);
   const scene = getChatScene(location).scene;
-  const navigate = useTransitionNavigate();
 
   // Drag-to-dismiss: same pattern as ActivitySheet — grip region on
   // the top strip (handle pill + title area) starts a pointer drag;
@@ -172,20 +171,20 @@ function SheetBody({
 
   const stop = (e: MouseEvent) => e.stopPropagation();
 
-  const enterEvent = () => {
+  const enterEvent = (e: MouseEvent) => {
     // "进入事件" is the commit action — this is where we consume the
     // badge. After the user confirms, the heart at this POI goes away
     // for the rest of the session; refreshing the page draws a fresh
     // random set (see EventSheetProvider).
     consume(location);
+    // The event chat grows out of this button (see lib/mobile/drill);
+    // measure it before the sheet starts collapsing.
+    markDrillOrigin(e.currentTarget);
     // Close the sheet first so the map is visible for a split second
-    // as the event-chat overlay slides in from the right — mirrors
-    // the handoff you'd get tapping a POI directly into free-chat.
-    // Target is the event-chat route (`/event/<loc>`), which is
-    // intercepted by `@modal/(.)event/[location]` into `EventModal`
-    // and animates with the same iOS push as the chat overlay.
+    // as the event chat grows over it — mirrors the handoff you'd get
+    // tapping a POI directly into free chat.
     close();
-    navigate(`/event/${encodeURIComponent(location)}`);
+    enterPlace({ location, mode: "event" });
   };
 
   return (

@@ -20,7 +20,7 @@ import {
 } from "@/components/map/friends-status-context";
 import { useTrajectory } from "@/components/map/trajectory-context";
 import { usePhoneOverlayRoot } from "@/components/mobile/phone-frame";
-import { useTransitionNavigate } from "@/components/mobile/transition-shell";
+import { enterPlace } from "@/lib/mobile/drill";
 
 // ─── Data ────────────────────────────────────────────────────────────────
 
@@ -881,8 +881,6 @@ function EntryCard({
   item: FeedItem;
   onPick: () => void;
 }) {
-  const navigate = useTransitionNavigate();
-
   const inner = (
     <>
       <div className="flex items-center gap-[8px]">
@@ -934,8 +932,8 @@ function EntryCard({
     );
   }
 
-  const handleClick = () => {
-    navigate(`/chat/${encodeURIComponent(item.chatLocation)}`);
+  const handleClick = (e: MouseEvent) => {
+    enterPlace({ location: item.chatLocation, mode: "free" }, e.currentTarget);
     onPick();
   };
   return (

@@ -1,14 +1,15 @@
 "use client";
 
 import Image from "next/image";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import {
   BottomSheet,
 } from "@/components/tilia/bottom-sheet";
 import { SpeakerStack } from "@/components/tilia/tilia-avatar";
-import { useTransitionNavigate } from "@/components/mobile/transition-shell";
+import { enterPlace, markDrillOrigin } from "@/lib/mobile/drill";
 import { useStoryFlags } from "@/components/tilia/story-flags-context";
 import {
-  destinyChatHref,
+  destinyChatTarget,
   destinyDisplaySpeakers,
   destinyEnterLabel,
   destinyLayout,
@@ -32,7 +33,6 @@ export function DestinyEnterSheet({
   marker: DestinyMarkerDef | null;
   onClose: () => void;
 }) {
-  const navigate = useTransitionNavigate();
   const { beginDestinyVisit } = useStoryFlags();
   const open = !!marker;
   const room = marker?.roomId ? ROOM_BY_ID[marker.roomId] : null;
@@ -40,13 +40,16 @@ export function DestinyEnterSheet({
   const accent = destined ? DESTINED_ACCENT : POTENTIAL_ACCENT;
   const layout = marker ? destinyLayout(marker.speakers) : "pair";
 
-  const enter = () => {
+  const enter = (e: ReactMouseEvent<HTMLButtonElement>) => {
     if (!marker) return;
+    /* 聊天从这颗按钮长开来。半层马上要收，但位置这会儿量还来得及 —— 不报的
+       话会沿用上一次点地标留下的原点，从一个跟这次无关的地方放大。 */
+    markDrillOrigin(e.currentTarget);
     beginDestinyVisit(marker);
-    const href = destinyChatHref(marker);
+    const target = destinyChatTarget(marker);
     onClose();
-    // 等半层开始收起再推页，手感对齐校园地图「进入事件」。
-    window.setTimeout(() => navigate(href), 80);
+    // 等半层开始收起再开场，手感对齐校园地图「进入事件」。
+    window.setTimeout(() => enterPlace(target), 80);
   };
 
   return (

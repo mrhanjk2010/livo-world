@@ -8,8 +8,7 @@ import { TiliaMapScreen } from "@/components/tilia/tilia-map-screen";
 
 /**
  * 地图页手机框壳。
- * 手机框保持视口居中（与 ChatModal / EventModal 对齐）；
- * Demo 说明与菜单绝对挂在框两侧，不挤占居中布局。
+ * 手机框保持视口居中；Demo 说明与菜单绝对挂在框两侧，不挤占居中布局。
  */
 export function TiliaMapDemoShell() {
   return (
