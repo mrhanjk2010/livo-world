@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -41,6 +42,7 @@ import {
   type LooseEvent,
 } from "@/lib/tilia/echo-field";
 import { ROOM_BY_ID } from "@/lib/tilia/train";
+import { wireCode, wireGlyph } from "@/lib/tilia/wire-code";
 
 /**
  * 进出场是一次绕 Y 轴的翻转：顶栏右上角那枚按钮把世界页翻过去，露出
@@ -1486,27 +1488,49 @@ function panForBox(
 /* ─────────────────────────── 连线 ─────────────────────────── */
 
 /**
- * 静息态的那张网：图上每一条因果都连着，一根很淡的渐变虚线，画完就不再动。
+ * 字号（画布 px，再按 `weight` 反向补偿）。字得小到远看是一根线，又大到凑近能
+ * 认出 `echo.brew` —— 七上下是这两件事的交界。
+ */
+const WIRE_FONT = 7.2;
+/**
+ * 字距，按字号折算。留出这一档，一串字远看才是「一条由字连成的线」而不是一条
+ * 涂满的黑带；再宽就散成一颗颗，线断了。
+ */
+const WIRE_TRACKING = 0.26;
+/** 等宽字的字身宽度大致是字号的六成，用来估一条线能装几个字。 */
+const WIRE_ADVANCE = 0.6;
+/**
+ * 字外面那层绿光的半径（屏幕 px，内部按 `weight` 折算）。
  *
- * 刻意画得比什么都轻 —— 它的作用是让人看出「这些事本来就互相牵着」，而不是
- * 让人去读某一条。一旦有东西被选中，它再退一档（`aside`），把注意力让给被挑
- * 亮的那条链。
+ * 挂在整层上做一次 `drop-shadow`，不是逐字加光晕：一层就是一次光栅化，实测满
+ * 帧；逐字要么得画两遍（字形翻倍），要么得走 SVG 滤镜（每个字一次）。
  *
- * 虚线加渐变，是为了让静息态和选中态从质感上就分开：选中的那条是一根连续的、
- * 淌着光的线（`FlowLines`），静息的是断续的、往因那头化掉的痕 —— 一条是「正在
- * 发生」，一条是「记在那儿」。渐变方向和选中态一致（因那头透明、果那头显形），
- * 所以就算没选中，顺着哪头亮也读得出方向。
+ * 有这层光，字才像是荧光屏上发出来的，而不是印在黑纸上的。半径压得很小 ——
+ * 大了字会糊成一条绿带，那就白写这些字了。
+ */
+const WIRE_GLOW = 0.7;
+
+/**
+ * 静息态的那张网：图上每一条因果都连着 —— 只不过线不是画出来的，是写出来的。
  *
- * 虚线的段长和间隔都按 `weight` 反向补偿：跟线宽一个道理，缩小时段长不放大就
- * 密成一根实线，虚线也就白虚了。
+ * 每条线上串的是一段代码：多数是 0/1 和运算符，偶尔嵌一个 `echo.brew`、`+0.03`
+ * 这样看得懂的词（词表见 `wire-code.ts`，和底下那张运转日志同一门语言）。远看
+ * 是一条淡绿的虚线，凑近才发现它一直是字。
  *
- * 这张网一帧都不能重画：满图一百多条描边虚线，重画一次就要几十毫秒。让虚线漂
- * 起来（动 `stroke-dashoffset`）实测掉到七帧 —— 连只让十条漂都掉到十三帧，因为
- * 动一条就得把整层重新光栅化一遍。运转感因此交给 `RestGlints`：光点是独立的合
- * 成层，只动 transform，一帧都不碰这张网。
+ * 这么写不是为了炫技：这一屏讲的是世界的背面，而背面的意思就是「这些关系是被
+ * 算出来的」。一根笔画只能说「它们连着」，一串代码还能说「它们正被算着」。底下
+ * 那张卡说世界在算，这张网就是它算的东西本身。
  *
- * 和 `FlowLines` 仍分成两个组件：那边一条线三层描边加一道流光，用在七十多条上
- * 会拖垮这一屏；这边一条就是一笔加一个 gradient，静态、不动，画满也还撑得住。
+ * 刻意压得很淡 —— 它的作用是让人看出「这些事本来就互相牵着」，而不是让人去读某
+ * 一条。一旦有东西被选中，它再退一档（`aside`），把注意力让给被挑亮的那条链。
+ *
+ * 渐变照旧：因那头几乎透明、果那头满色。所以就算没选中，顺着字往哪头变亮，也读
+ * 得出这段因果朝哪儿走。
+ *
+ * 这张网一帧都不能重画（满图一百多条，一次重排上万个字形）。所以：字是静态的，
+ * 运转感交给 `RestGlints`；每条线各自 memo（见 `CodeWire`），新事件到场时只有新
+ * 那条要排版；字号按 `weight` 量化过（见 `wireFont`），捏合缩放时不会每一帧都重
+ * 排一次。
  */
 function RestLines({
   edges,
@@ -1517,9 +1541,10 @@ function RestLines({
   edges: readonly FlowEdge[];
   field: EchoField;
   aside: boolean;
-  /** 线宽的反向补偿：缩小时按倍率加粗，屏幕上的分量才不变（见 `lineWeight`）。 */
+  /** 字号的反向补偿：缩小时按倍率放大，屏幕上的分量才不变（见 `lineWeight`）。 */
   weight: number;
 }) {
+  const font = wireFont(weight);
   if (edges.length === 0) return null;
 
   return (
@@ -1529,6 +1554,7 @@ function RestLines({
       height={field.height}
       viewBox={`0 0 ${field.width} ${field.height}`}
       opacity={aside ? REST_LINE_ASIDE : REST_LINE}
+      style={{ filter: `drop-shadow(0 0 ${WIRE_GLOW * weight}px ${LINE_ACCENT}88)` }}
       aria-hidden
     >
       <defs>
@@ -1543,28 +1569,101 @@ function RestLines({
             y2={e.to.y}
           >
             <stop stopColor={LINE_ACCENT} stopOpacity="0.05" />
-            <stop offset="0.5" stopColor={LINE_ACCENT} stopOpacity="0.5" />
+            <stop offset="0.5" stopColor={LINE_ACCENT} stopOpacity="0.62" />
             <stop offset="1" stopColor={LINE_ACCENT} stopOpacity="1" />
           </linearGradient>
         ))}
       </defs>
 
-      <g
-        fill="none"
-        strokeWidth={0.9 * weight}
-        strokeLinecap="round"
-        strokeDasharray={`${3.6 * weight} ${5.4 * weight}`}
-      >
-        {edges.map((e) => (
-          <path
-            key={e.id}
-            d={linkPath(e.from, e.to)}
-            stroke={`url(#echo-rest-${e.id})`}
-          />
-        ))}
-      </g>
+      {edges.map((e) => (
+        <CodeWire
+          key={e.id}
+          id={e.id}
+          from={e.from}
+          to={e.to}
+          font={font}
+          fill={`url(#echo-rest-${e.id})`}
+        />
+      ))}
     </svg>
   );
+}
+
+/**
+ * 一条写成代码的线。
+ *
+ * `<textPath>` 让字顺着路径走，连拐角都跟着拐 —— 竖着那截字就立起来，横着那截
+ * 躺平，满屏看下去像一块板子上的走线。
+ *
+ * memo 是必需的而不是优化：这一屏每隔几秒就有新事件到场，到场时 `restEdges` 整
+ * 个重算，没有 memo 的话一百多条线上的上万个字形会跟着重排一遍，屏幕会硬卡一
+ * 下。几何和字号不变就不重排，于是到场只花新那一条的钱。
+ */
+const CodeWire = memo(function CodeWire({
+  id,
+  from,
+  to,
+  font,
+  fill,
+  weight = 400,
+}: {
+  id: string;
+  from: Point;
+  to: Point;
+  /** 画布坐标下的字号。 */
+  font: number;
+  /** 纯色或 `url(#gradient)`。 */
+  fill: string;
+  weight?: number;
+}) {
+  const tracking = font * WIRE_TRACKING;
+  const chars = Math.max(
+    2,
+    Math.round(linkLength(from, to) / (font * WIRE_ADVANCE + tracking)),
+  );
+  /*
+   * 种子取几何而不是线的 id：同一段因果在静息层和高亮层各画一次（id 不同），
+   * 种子若跟着 id 走，两层就会是两串不同的字，叠在一起成了重影。取几何，两层
+   * 逐字对齐，选中时只是同一串代码被点亮。
+   */
+  const seed = `${Math.round(from.x)}:${Math.round(from.y)}>${Math.round(
+    to.x,
+  )}:${Math.round(to.y)}`;
+
+  return (
+    <>
+      {/*
+        路径本身不描边，只作为字的轨道 —— 线的实体就是那串字。留着 <path> 是因为
+        `<textPath>` 只能引用文档里的路径。
+      */}
+      <path id={`echo-wire-${id}`} d={linkPath(from, to)} fill="none" />
+      <text
+        className="font-mono"
+        fontSize={font}
+        letterSpacing={tracking}
+        fontWeight={weight}
+        fill={fill}
+        dominantBaseline="central"
+      >
+        {/*
+          `href` 而不是 `xlinkHref`：SVG2 的写法，现代浏览器都认，也不用给 svg
+          元素挂 xlink 命名空间。
+        */}
+        <textPath href={`#echo-wire-${id}`}>{wireCode(seed, chars)}</textPath>
+      </text>
+    </>
+  );
+});
+
+/**
+ * 字号按倍率补偿，再量化到半档。
+ *
+ * 量化是为了捏合：字号一变，整张网上万个字形就得重新沿路径排一次（几十毫秒）。
+ * 连续跟手的缩放会让这件事每帧发生一次。量化之后，从最小缩到最大只跨过两三档，
+ * 中间的每一帧都是纯合成。
+ */
+function wireFont(weight: number): number {
+  return WIRE_FONT * (Math.round(weight * 2) / 2);
 }
 
 /**
@@ -1578,8 +1677,10 @@ const GLINT_SPREAD = 0.45;
 /** 走完之后歇多久再挑下一条：歇一会儿，动静才有疏密。 */
 const GLINT_REST_MS = 900;
 const GLINT_REST_JITTER_MS = 3600;
-/** 光点直径（屏幕 px，内部按 `weight` 折算成画布 px）。 */
-const GLINT_SIZE = 13;
+/** 跑动那个字的字号（屏幕 px，内部按 `weight` 折算成画布 px）。 */
+const GLINT_SIZE = 11;
+/** 跑的时候多久换一个字。换得比读得快一点，看着是在闪，不是在拼词。 */
+const GLINT_FLICKER_MS = 150;
 /** 弧线的取样段数。曲率很浅，二十段的折线已经看不出棱。 */
 const GLINT_STEPS = 20;
 /** 光点自身的亮度。跟静息线一个道理：有东西被选中时退到几乎看不见。 */
@@ -1587,8 +1688,12 @@ const GLINT_OPACITY = 0.5;
 const GLINT_OPACITY_ASIDE = 0.12;
 
 /**
- * 静息态那张网上跑的微光：每次挑十几条线，各放一颗光点，顺着「因 → 果」的方向
- * 淌过去，到头就熄，歇一会儿再换一条。
+ * 静息态那张网上跑的微光：每次挑十几条线，各放一个字，顺着「因 → 果」的方向淌
+ * 过去，到头就熄，歇一会儿再换一条。
+ *
+ * 线本身既然是代码（见 `CodeWire`），跑在上面的就不该还是一颗光点 —— 那是两套
+ * 语言。所以跑的也是字：比线上的字亮一档、大一点，一边走一边换字，像一个正在
+ * 执行的游标扫过这段代码。
  *
  * 为什么不是让虚线自己漂 —— 那才是这个需求的第一直觉。实测过：动
  * `stroke-dashoffset` 会让整张网每帧重新光栅化一次，满图一百来条描边虚线，帧
@@ -1634,6 +1739,7 @@ function RestGlints({
 
     const beads = Array.from(host.children) as HTMLElement[];
     const timers: number[] = [];
+    const flickers: number[] = [];
     let alive = true;
 
     const ride = (bead: HTMLElement) => {
@@ -1647,6 +1753,16 @@ function RestGlints({
       }));
       const duration =
         GLINT_TRAVEL_MS * (1 + (Math.random() * 2 - 1) * GLINT_SPREAD);
+
+      /*
+       * 换字只动这一个字符节点，字宽固定（等宽字 + 定死的盒子），所以既不会牵
+       * 动别的东西重排，也不影响这颗自己那层的合成。
+       */
+      bead.textContent = wireGlyph();
+      const flick = window.setInterval(() => {
+        bead.textContent = wireGlyph();
+      }, GLINT_FLICKER_MS);
+      flickers.push(flick);
 
       bead.animate(path, { duration, easing: "linear", fill: "forwards" });
       /*
@@ -1664,6 +1780,7 @@ function RestGlints({
       );
       glow.finished
         .then(() => {
+          window.clearInterval(flick);
           if (!alive) return;
           timers.push(
             window.setTimeout(
@@ -1672,7 +1789,7 @@ function RestGlints({
             ),
           );
         })
-        .catch(() => {});
+        .catch(() => window.clearInterval(flick));
     };
 
     // 开场就错开：不然十几颗会齐步从各自的起点出发，一眼看出是同一个发令枪。
@@ -1688,6 +1805,7 @@ function RestGlints({
     return () => {
       alive = false;
       for (const t of timers) window.clearTimeout(t);
+      for (const f of flickers) window.clearInterval(f);
       for (const bead of beads) for (const a of bead.getAnimations()) a.cancel();
     };
   }, [ready, weight]);
@@ -1704,11 +1822,14 @@ function RestGlints({
       {Array.from({ length: GLINT_COUNT }, (_, i) => (
         <span
           key={i}
-          className="absolute left-0 top-0 rounded-full opacity-0"
+          className="absolute left-0 top-0 block text-center font-mono opacity-0"
           style={{
-            width: size,
-            height: size,
-            background: `radial-gradient(circle, ${LINE_ACCENT} 0%, ${LINE_ACCENT}66 38%, transparent 70%)`,
+            /* 盒子定死：换字时不重排，也让 translate(-50%,-50%) 稳稳落在字心上 */
+            width: size * 1.2,
+            fontSize: size,
+            lineHeight: `${size}px`,
+            color: "#d9ffe9",
+            textShadow: `0 0 ${size * 0.5}px ${LINE_ACCENT}, 0 0 ${size * 1.4}px ${LINE_ACCENT}99`,
             willChange: "transform, opacity",
           }}
         />
@@ -1721,9 +1842,9 @@ function RestGlints({
  * 汇聚线。两种上游共用一套画法 —— 事件/时机 → 回响，以及更早的回响 →
  * 后来的回响。它们在世界里是一回事（都是「因」），画成两种反而是在教术语。
  *
- * 调子取自壁上星图那种「刻进石头的光」：一根连续的细线，底下垫一层散开
- * 的柔光，线上有一道被磨圆了的亮流往回响那头淌。不用点线 —— 虚线会把
- * 「关系」画成一条示意箭头，太具体，也和这一屏其他东西的质感不搭。
+ * 和静息那张网写的是同一串代码（见 `CodeWire`：种子取的是几何，所以同一段因
+ * 果在两层里逐字对齐），只是这一条被点亮了：字满色、加粗，底下垫一层散开的柔
+ * 光，另有一道亮流顺着字往果那头淌 —— 这段代码此刻正在被执行。
  *
  * 三层渐变都是上游端透明、下游端满色：线本身在靠近光球时才显形，那道亮
  * 流也是跑到终点时最亮。汇聚感来自这个明暗差，不是来自线在动。方向感也
@@ -1747,6 +1868,10 @@ function FlowLines({
       width={field.width}
       height={field.height}
       viewBox={`0 0 ${field.width} ${field.height}`}
+      /* 同静息层：字自己也要发光，不然亮起来的只是底下那层柔光 */
+      style={{
+        filter: `drop-shadow(0 0 ${WIRE_GLOW * 1.4 * weight}px ${LINE_ACCENT}aa)`,
+      }}
       aria-hidden
     >
       <defs>
@@ -1799,16 +1924,8 @@ function FlowLines({
               stroke={stroke}
               strokeWidth={4.5 * weight}
               strokeLinecap="round"
-              opacity={0.3}
+              opacity={0.26}
               filter="url(#echo-line-bloom)"
-            />
-            <path
-              d={d}
-              fill="none"
-              stroke={stroke}
-              strokeWidth={0.9 * weight}
-              strokeLinecap="round"
-              opacity={0.75}
             />
             <path
               d={d}
@@ -1827,6 +1944,15 @@ function FlowLines({
               filter="url(#echo-line-comet)"
               className="motion-safe:animate-[livo-echo-flow_2.6s_linear_infinite]"
               style={{ animationDelay: `${i * 260}ms` }}
+            />
+            {/* 线的实体：和静息态同一串代码，这里满色加粗 */}
+            <CodeWire
+              id={`flow-${e.id}`}
+              from={e.from}
+              to={e.to}
+              font={wireFont(weight)}
+              fill={stroke}
+              weight={600}
             />
           </g>
         );
@@ -1941,6 +2067,14 @@ function sampleLink(from: Point, to: Point, count: number): Point[] {
     });
   }
   return out;
+}
+
+/** 一条连线摊平之后有多长 —— 算这条线上能串下几个字（见 `CodeWire`）。 */
+function linkLength(from: Point, to: Point): number {
+  const flat = flattenLink(from, to);
+  let len = 0;
+  for (let i = 1; i < flat.length; i += 1) len += dist(flat[i - 1], flat[i]);
+  return len;
 }
 
 /** 把连线摊成一串首尾相接的点：直段照抄，圆角切成 `CORNER_STEPS` 小段。 */
