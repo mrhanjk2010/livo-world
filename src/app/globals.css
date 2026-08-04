@@ -251,16 +251,49 @@ body {
 /*
  * 世界背面那三张流水卡：新的一行落下时，整叠往上顶一格。
  *
- * 一格的高度由行高从内联样式传进来（`--log-line`），因为字号一改这个数就得跟
- * 着改，写死在这里两处会各走各的。
+ * 那一叠是贴着底edge排的，所以「顶一格」是从「还没落下」的位置回到 0 —— 新的
+ * 一行先把整叠往下垫自己那么高，再收回去。垫多高由 `--log-rise` 传进来，量的是
+ * 那一行的实测高度：展开后要折行，一行两行三行都有，写死一个数就对不齐了。
  */
-@keyframes livo-log-scroll {
+@keyframes livo-log-rise {
   from {
-    transform: translateY(0);
+    transform: translateY(var(--log-rise, 18px));
   }
   to {
-    transform: translateY(calc(var(--log-line, 18px) * -1));
+    transform: translateY(0);
   }
+}
+
+/*
+ * 展开后那一屏：读得全比排得齐要紧。
+ *
+ * 行里那几截（时刻、op、说人话的那半句）在卡片上是并排的弹性盒，一截放不下就
+ * 整截掉到下一行 —— 于是「· done attempts=1」这种半句会顶在行首，读起来是断
+ * 的。展开后改成让它们像一句话那样流：整行是块，几截都退回行内，句子接着上一
+ * 截往下折；续行悬挂缩进，一眼看得出这几行是同一条。
+ *
+ * 写成一组后代覆盖、而不是给每种行组件加个「折不折」的参数：折行是「这一屏怎
+ * 么看」的事，不是「这一行是什么」的事。
+ */
+.livo-log-wrap .livo-log-row span {
+  display: inline;
+  /* gap 只在弹性盒里管用，退回行内之后得自己撑开这点空。 */
+  margin-right: 4px;
+}
+
+.livo-log-wrap .livo-log-row {
+  display: block;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  padding-left: 1.6em;
+  text-indent: -1.6em;
+}
+
+.livo-log-wrap .truncate {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 /*

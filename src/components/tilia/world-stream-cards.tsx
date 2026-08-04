@@ -26,6 +26,13 @@ import {
   type DestinyState,
 } from "@/lib/tilia/world-destiny-log";
 import {
+  LIVE_SLOW_TICK_MS,
+  LIVE_TICK_MS,
+  useWorldLogStream,
+  useWorldLogTimeline,
+  type WorldLogRow,
+} from "@/lib/tilia/world-log-stream";
+import {
   RUNTIME_INTERVAL_MS,
   RUNTIME_LOG,
   RUNTIME_SLOW_INTERVAL_MS,
@@ -72,16 +79,41 @@ const ANIM_MS = 240;
  * 它们各自是什么东西。
  */
 export function WorldStreamCards() {
+  /*
+   * 第一张卡优先滚真的：连得上世界日志网关就用它，连不上（线上静态站、不在
+   * 内网）退回手写的词库。两种情况下这张卡都在滚，差别只在滚的是谁的账。
+   *
+   * 真的那份不是收到就显示，先排成一条队按拍放 —— 后端一阵一阵地吐，理由和
+   * 排法见 `useWorldLogTimeline`。队里空了的那些拍由手写的顶上。
+   */
+  const motion = useMotion();
+  const feed = useWorldLogStream();
+  const line = useWorldLogTimeline(
+    feed,
+    motion ? LIVE_TICK_MS : LIVE_SLOW_TICK_MS,
+  );
+
   return (
     <div className="absolute bottom-[20px] left-1/2 top-[104px] z-[8] flex w-[340px] -translate-x-1/2 flex-col gap-[10px]">
       <StreamCard
         cmd="world.tail -f"
         title="世界一直在算"
-        note="这里只有正在发生的那几十行"
+        note={
+          line.live
+            ? "整屏都是真的：后端吐得慢，这张卡就跟着它慢下来"
+            : "这里只有正在发生的那几十行"
+        }
         accent={GREEN}
-        interval={RUNTIME_INTERVAL_MS}
-        slowInterval={RUNTIME_SLOW_INTERVAL_MS}
-        renderRow={(i) => <CalcRow i={i} />}
+        /* 接上真数据之后节奏跟着后端走，慢得多；这里只影响顶一格的时长。 */
+        interval={line.live ? LIVE_TICK_MS : RUNTIME_INTERVAL_MS}
+        slowInterval={line.live ? LIVE_SLOW_TICK_MS : RUNTIME_SLOW_INTERVAL_MS}
+        live={line.live}
+        waiting={line.live && !line.flowing}
+        /* 拍子由那条队打，卡片跟着它走，别自己再打一份。 */
+        cursor={line.live ? line.start + line.rows.length - 1 : undefined}
+        renderRow={(i) => (
+          <CalcRow i={i} row={line.rows[i - line.start]} live={line.live} />
+        )}
       />
       <StreamCard
         cmd="destiny.watch"
@@ -130,6 +162,9 @@ function StreamCard({
   accent,
   interval,
   slowInterval,
+  live = false,
+  waiting = false,
+  cursor: cursorFromFeed,
   renderRow,
 }: {
   /** 表头左边那截命令行的样子。 */
@@ -140,9 +175,22 @@ function StreamCard({
   accent: string;
   interval: number;
   slowInterval: number;
+  /** 滚的是真的账 —— 表头点一颗灯。 */
+  live?: boolean;
+  /** 真的都放完了，在等世界开口 —— 那颗灯改成喘气，别让人以为是死了。 */
+  waiting?: boolean;
+  /** 拍子由外面打（真数据那张卡）。给了就不再自己走表。 */
+  cursor?: number;
   renderRow: (i: number) => ReactNode;
 }) {
-  const { cursor, motion } = useStreamCursor(interval, slowInterval);
+  const motion = useMotion();
+  const own = useStreamCursor(
+    interval,
+    slowInterval,
+    motion,
+    cursorFromFeed === undefined,
+  );
+  const cursor = cursorFromFeed ?? own;
   const [expanded, setExpanded] = useState(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [rows, setRows] = useState(6);
@@ -177,8 +225,15 @@ function StreamCard({
           <span className="truncate" style={{ color: `${accent}66` }}>
             $ {cmd} · {title}
           </span>
-          <span className="shrink-0" style={{ color: `${accent}99` }}>
-            [展开]
+          <span className="flex shrink-0 items-center gap-[5px]">
+            {/* 真账在滚的时候点一颗灯：一眼分得出这张卡此刻接没接上 */}
+            {live ? (
+              <span
+                className={`inline-block size-[5px] rounded-full ${waiting ? "animate-pulse" : ""}`}
+                style={{ background: accent, boxShadow: `0 0 6px ${accent}` }}
+              />
+            ) : null}
+            <span style={{ color: `${accent}99` }}>[展开]</span>
           </span>
         </div>
 
@@ -333,6 +388,7 @@ function StreamSheet({
             motion={motion}
             slide={slide}
             size={12}
+            wrap
             renderRow={renderRow}
           />
         </div>
@@ -345,9 +401,13 @@ function StreamSheet({
 /* ─────────────────────────── 流水本体 ─────────────────────────── */
 
 /**
- * 往上顶的那叠字。露 `rows` 行，多留一行让它从上沿被裁掉。
+ * 往上顶的那叠字。
  *
- * 动画靠 `key` 换值重挂来触发 —— 用状态去回弹 transform 反而容易丢帧。
+ * 那一叠贴着底边排，多出来的从上沿被裁掉 —— 这样折行之后每行高矮不一也不用去
+ * 算「露几行」：底下那行永远是完整的，上面裁到哪儿算哪儿。
+ *
+ * 顶一格的距离每拍都要量（新落下那行自己有多高），量完再重挂动画 —— 折行之后
+ * 一行可能是一行，也可能是三行。量在 layout effect 里，赶在这一帧画出来之前。
  *
  * 整块不进读屏：一秒好几行的流水念出来只是噪音。
  */
@@ -357,6 +417,7 @@ function Stream({
   motion,
   slide,
   size = 11,
+  wrap = false,
   renderRow,
 }: {
   rows: number;
@@ -365,35 +426,45 @@ function Stream({
   slide: number;
   /** 字号：卡片上 11，展开后 12。行高不跟着变，两处对得上才不会跳。 */
   size?: number;
+  /** 折行：一行读得全，代价是高矮不齐。卡片上不折，展开后折。 */
+  wrap?: boolean;
   renderRow: (i: number) => ReactNode;
 }) {
   const keep = rows + 1;
   const list = Array.from({ length: keep }, (_, k) => cursor - (keep - 1) + k);
+  const stackRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    const el = stackRef.current;
+    if (!el || !motion) return;
+    const last = el.lastElementChild as HTMLElement | null;
+    el.style.setProperty("--log-rise", `${last?.offsetHeight ?? LINE_H}px`);
+    /* 先摘掉再挂上，中间读一下布局 —— 不读这一下，浏览器不认为动画换过。 */
+    el.style.animation = "none";
+    void el.offsetWidth;
+    el.style.animation = `livo-log-rise ${slide}ms linear`;
+  }, [cursor, motion, slide]);
 
   return (
-    <div aria-hidden className="overflow-clip" style={{ height: rows * LINE_H }}>
-      <div
-        key={cursor}
-        style={
-          {
-            "--log-line": `${LINE_H}px`,
-            animation: motion
-              ? `livo-log-scroll ${slide}ms linear forwards`
-              : undefined,
-            transform: motion ? undefined : `translateY(-${LINE_H}px)`,
-          } as CSSProperties
-        }
-      >
+    <div
+      aria-hidden
+      className={`flex flex-col justify-end overflow-clip ${wrap ? "livo-log-wrap" : ""}`}
+      style={{ height: rows * LINE_H }}
+    >
+      <div ref={stackRef} className="shrink-0">
         {list.map((i, k) => (
           <div
             key={i}
             /* 越旧越淡：顶上去的那几行自己就退场了。 */
-            style={{
-              height: LINE_H,
-              fontSize: size,
-              opacity: 0.3 + (k / (keep - 1)) * 0.7,
-            }}
-            className="flex items-center gap-[5px] overflow-hidden whitespace-nowrap font-mono leading-[18px]"
+            style={
+              {
+                [wrap ? "minHeight" : "height"]: LINE_H,
+                fontSize: size,
+                opacity: 0.3 + (k / (keep - 1)) * 0.7,
+              } as CSSProperties
+            }
+            /* 折行的那一屏在外层挂 livo-log-wrap，这一行的排法由那组样式接管。 */
+            className="livo-log-row flex items-center gap-[5px] overflow-hidden whitespace-nowrap font-mono leading-[18px]"
           >
             {renderRow(i)}
           </div>
@@ -403,27 +474,36 @@ function Stream({
   );
 }
 
-/** 游标：每张卡各走各的一份。 */
-function useStreamCursor(
-  interval: number,
-  slowInterval: number,
-): { cursor: number; motion: boolean } {
-  const [cursor, setCursor] = useState(CURSOR_START);
+/** 要不要动。关了动效的人换一档慢的，不是不动。 */
+function useMotion(): boolean {
   const [motion, setMotion] = useState(true);
 
   useEffect(() => {
     setMotion(!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
   }, []);
 
+  return motion;
+}
+
+/** 游标：每张卡各走各的一份。真数据那张卡的拍子在外面打，这里就不走表。 */
+function useStreamCursor(
+  interval: number,
+  slowInterval: number,
+  motion: boolean,
+  enabled: boolean,
+): number {
+  const [cursor, setCursor] = useState(CURSOR_START);
+
   useEffect(() => {
+    if (!enabled) return;
     const t = setInterval(
       () => setCursor((n) => n + 1),
       motion ? interval : slowInterval,
     );
     return () => clearInterval(t);
-  }, [motion, interval, slowInterval]);
+  }, [enabled, motion, interval, slowInterval]);
 
-  return { cursor, motion };
+  return cursor;
 }
 
 /** 内容循环取。取模先兜正：JS 里 -3 % 10 是 -3，负下标取出来是 undefined。 */
@@ -434,12 +514,46 @@ function pick<T>(pool: readonly T[], i: number): T {
 /* ─────────────────────────── 三种行 ─────────────────────────── */
 
 /**
- * 世界一直在算：tick + op + 说人话的那半句。
+ * 世界一直在算：时刻 + op + 说人话的那半句。
  *
- * 步长不是定值（3 或 8，看 `i % 5` 那一项怎么落）—— 匀速自增看着像个计数器，
- * 忽快忽慢才像「这一拍世界干的事多一点」。减而不是加，是为了保证单调。
+ * 接得上真的世界日志就整屏都放真的（`row`），接不上才滚手写的词库 —— 两种的排
+ * 法是同一套：前面一截像代码，后面一截落在具体的人和事上。手写那份里 tick 步长
+ * 不是定值（3 或 8，看 `i % 5` 怎么落）—— 匀速自增看着像个计数器，忽快忽慢才像
+ * 「这一拍世界干的事多一点」。减而不是加，是为了保证单调。
+ *
+ * 真的那份里 world_event 提亮一档：那是世界里真落了一件事，不是它跑动的痕迹。
+ *
+ * 接上了但这一格还没轮到内容（刚打开、队列还没铺到这儿），就空着 —— 不拿手写
+ * 的来填：这一屏说了是真的，就不能掺。
  */
-function CalcRow({ i }: { i: number }) {
+function CalcRow({
+  i,
+  row,
+  live = false,
+}: {
+  i: number;
+  row?: WorldLogRow | null;
+  live?: boolean;
+}) {
+  if (live && !row) return null;
+
+  if (row) {
+    const tone = row.kind === "event" ? "#8dffbc" : GREEN;
+    return (
+      <>
+        <span className="shrink-0 tabular-nums" style={{ color: `${GREEN}70` }}>
+          {row.at}
+        </span>
+        <span className="shrink-0" style={{ color: `${tone}b0` }}>
+          {row.op}
+        </span>
+        <span className="truncate" style={{ color: tone }}>
+          {row.note ? `· ${row.note}` : ""}
+        </span>
+      </>
+    );
+  }
+
   const line = pick(RUNTIME_LOG, i);
   const tick = RUNTIME_TICK_START + i * 4 - (i % 5);
 
