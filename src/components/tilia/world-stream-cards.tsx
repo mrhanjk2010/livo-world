@@ -32,12 +32,7 @@ import {
   useWorldLogTimeline,
   type WorldLogRow,
 } from "@/lib/tilia/world-log-stream";
-import {
-  RUNTIME_INTERVAL_MS,
-  RUNTIME_LOG,
-  RUNTIME_SLOW_INTERVAL_MS,
-  RUNTIME_TICK_START,
-} from "@/lib/tilia/world-runtime";
+import { WORLD_LOG_RECORDING } from "@/lib/tilia/world-log-recording";
 
 /** 一行的高度，和字号的 leading 对齐。 */
 const LINE_H = 18;
@@ -80,11 +75,9 @@ const ANIM_MS = 240;
  */
 export function WorldStreamCards() {
   /*
-   * 第一张卡优先滚真的：连得上世界日志网关就用它，连不上（线上静态站、不在
-   * 内网）退回手写的词库。两种情况下这张卡都在滚，差别只在滚的是谁的账。
-   *
-   * 真的那份不是收到就显示，先排成一条队按拍放 —— 后端一阵一阵地吐，理由和
-   * 排法见 `useWorldLogTimeline`。队里空了的那些拍由手写的顶上。
+   * 第一张卡滚的是真的世界日志。连得上网关就是此刻的（排队按拍放，理由和排法
+   * 见 `useWorldLogTimeline`）；连不上（线上静态站、不在内网）就滚录下来的那
+   * 一段。两头都是真话，差别只在一个是「正在」、一个是「曾经」。
    */
   const motion = useMotion();
   const feed = useWorldLogStream();
@@ -100,19 +93,25 @@ export function WorldStreamCards() {
         title="世界一直在算"
         note={
           line.live
-            ? "整屏都是真的：后端吐得慢，这张卡就跟着它慢下来"
-            : "这里只有正在发生的那几十行"
+            ? "接的是此刻那条流；后端吐得慢，这张卡就跟着它慢下来"
+            : "录下来的一段真日志 —— 这一节车厢外面连不上世界的机房"
         }
         accent={GREEN}
-        /* 接上真数据之后节奏跟着后端走，慢得多；这里只影响顶一格的时长。 */
-        interval={line.live ? LIVE_TICK_MS : RUNTIME_INTERVAL_MS}
-        slowInterval={line.live ? LIVE_SLOW_TICK_MS : RUNTIME_SLOW_INTERVAL_MS}
+        /* 节奏跟着后端的真实产出走，慢得多；这里只影响顶一格的时长。 */
+        interval={LIVE_TICK_MS}
+        slowInterval={LIVE_SLOW_TICK_MS}
         live={line.live}
         waiting={line.live && !line.flowing}
-        /* 拍子由那条队打，卡片跟着它走，别自己再打一份。 */
+        /* 接上流的时候拍子由那条队打，卡片跟着它走，别自己再打一份。 */
         cursor={line.live ? line.start + line.rows.length - 1 : undefined}
         renderRow={(i) => (
-          <CalcRow i={i} row={line.rows[i - line.start]} live={line.live} />
+          <CalcRow
+            row={
+              line.live
+                ? line.rows[i - line.start]
+                : pick(WORLD_LOG_RECORDING, i)
+            }
+          />
         )}
       />
       <StreamCard
@@ -516,53 +515,28 @@ function pick<T>(pool: readonly T[], i: number): T {
 /**
  * 世界一直在算：时刻 + op + 说人话的那半句。
  *
- * 接得上真的世界日志就整屏都放真的（`row`），接不上才滚手写的词库 —— 两种的排
- * 法是同一套：前面一截像代码，后面一截落在具体的人和事上。手写那份里 tick 步长
- * 不是定值（3 或 8，看 `i % 5` 怎么落）—— 匀速自增看着像个计数器，忽快忽慢才像
- * 「这一拍世界干的事多一点」。减而不是加，是为了保证单调。
+ * world_event 提亮一档：那是世界里真落了一件事（谁去了哪儿、谁改了日程），其
+ * 余是它跑动的痕迹（调了哪个模型、花了多少毫秒）。两者混在一起滚，才像在看一
+ * 台还开着的机器，而不是一份摘要。
  *
- * 真的那份里 world_event 提亮一档：那是世界里真落了一件事，不是它跑动的痕迹。
- *
- * 接上了但这一格还没轮到内容（刚打开、队列还没铺到这儿），就空着 —— 不拿手写
- * 的来填：这一屏说了是真的，就不能掺。
+ * 这一格还没轮到内容（刚接上流、队列还没铺到这儿）就空着 —— 不拿别的来填：这
+ * 张卡说了每行都是真的，就不能掺。
  */
-function CalcRow({
-  i,
-  row,
-  live = false,
-}: {
-  i: number;
-  row?: WorldLogRow | null;
-  live?: boolean;
-}) {
-  if (live && !row) return null;
+function CalcRow({ row }: { row?: WorldLogRow }) {
+  if (!row) return null;
 
-  if (row) {
-    const tone = row.kind === "event" ? "#8dffbc" : GREEN;
-    return (
-      <>
-        <span className="shrink-0 tabular-nums" style={{ color: `${GREEN}70` }}>
-          {row.at}
-        </span>
-        <span className="shrink-0" style={{ color: `${tone}b0` }}>
-          {row.op}
-        </span>
-        <span className="truncate" style={{ color: tone }}>
-          {row.note ? `· ${row.note}` : ""}
-        </span>
-      </>
-    );
-  }
-
-  const line = pick(RUNTIME_LOG, i);
-  const tick = RUNTIME_TICK_START + i * 4 - (i % 5);
+  const tone = row.kind === "event" ? "#8dffbc" : GREEN;
 
   return (
     <>
-      <span style={{ color: `${GREEN}70` }}>{tick}</span>
-      <span style={{ color: `${GREEN}b0` }}>{line.op}</span>
-      <span className="truncate" style={{ color: GREEN }}>
-        · {line.note}
+      <span className="shrink-0 tabular-nums" style={{ color: `${GREEN}70` }}>
+        {row.at}
+      </span>
+      <span className="shrink-0" style={{ color: `${tone}b0` }}>
+        {row.op}
+      </span>
+      <span className="truncate" style={{ color: tone }}>
+        {row.note ? `· ${row.note}` : ""}
       </span>
     </>
   );
