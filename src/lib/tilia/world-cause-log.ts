@@ -38,14 +38,6 @@ export type CauseLine = {
   score: number;
 };
 
-/**
- * 滚动节奏。三张卡里最慢的一档 —— 一条链是要顺着读完的，读到末一节才知道这句
- * 话在说什么，比上面两张都需要停留。
- */
-export const CAUSE_INTERVAL_MS = 2_000;
-/** 关了动效的人换成这一档。 */
-export const CAUSE_SLOW_INTERVAL_MS = 4_800;
-
 export const CAUSE_LOG: readonly CauseLine[] = [
   { chain: ["一句回应", "夜场余音", "小提琴"], state: "done", score: 0.92 },
   { chain: ["小提琴", "巡警检查"], state: "done", score: 0.88 },

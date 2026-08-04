@@ -41,16 +41,6 @@ export type DestinyLine = {
   at?: number;
 };
 
-/**
- * 滚动节奏。
- *
- * 比上面那张运转日志慢五六倍是有意的：那张是机器每一拍都在跑的账，快到只读得
- * 清一两个词；命运是一件件落下来的，得慢到每一行都读得完 —— 三张卡的快慢本身
- * 就在说它们各自是什么。
- */
-export const DESTINY_INTERVAL_MS = 1_500;
-/** 关了动效的人换成这一档。 */
-export const DESTINY_SLOW_INTERVAL_MS = 3_600;
 /** 每行前面那个时刻的起点（当天的分钟数）。 */
 export const DESTINY_CLOCK_START = 6 * 60 + 18;
 

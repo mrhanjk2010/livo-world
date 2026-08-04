@@ -26,6 +26,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { WorldLogRow } from "@/lib/tilia/world-log-line";
+import { nextTickMs } from "@/lib/tilia/world-stream-tick";
 
 export type { WorldLogRow };
 
@@ -39,8 +40,8 @@ export const WORLD_LOG_WORLD =
  * 手里最多攒多少行。
  *
  * 这个数不是「显示得下多少」，是「够滚多久」：卡上一次看得见五六行，但队列一
- * 拍只放一行（275ms），所以攒下的行数直接决定真数据能滚多长时间 —— 600 行差不
- * 多两分半。
+ * 拍只放一行（平均三秒），所以攒下的行数直接决定真数据能滚多长时间 —— 攒满这
+ * 800 行能放上半个多钟头。
  *
  * 一上来 backfill 会灌几百行，这个数太小的话，多出来的那些还没轮到显示就被挤
  * 掉了，于是刚打开这一屏没多久就没有真的可放。留够装下整段 backfill。
@@ -136,9 +137,11 @@ export function useWorldLogStream(): WorldLogFeed {
  * backfill 灌几百行，然后可能一分钟里一行都没有（那条流上只剩每秒一个 ping）。
  * 收到就显示的话，几百行会在一瞬间刷完，然后卡在那儿不动，看着像是坏了。
  *
- * 排队之后，这张卡的快慢就跟后端的真实产出对齐了：慢，但每一行都是真的。三百
- * 来行历史够滚十来分钟，中途新吐的接在后面。队里真空了才停 —— 那时候是真的没
- * 有东西可算，表头那颗灯会自己喘起来，说明它在等，不是死了。
+ * 排队之后，这张卡的快慢就跟后端的真实产出对齐了：慢，但每一行都是真的。拍子
+ * 是随机的 1–5 秒（和另外两张卡共用一副骰子，见 `world-stream-tick.ts`），平均
+ * 三秒一行 —— 攒下的几百行历史够滚上小半个钟头，中途新吐的接在后面。队里真空了
+ * 才停 —— 那时候是真的没有东西可算，表头那颗灯会自己喘起来，说明它在等，不是死
+ * 了。
  */
 export type WorldLogTimeline = {
   /** 一拍一格。 */
@@ -151,25 +154,14 @@ export type WorldLogTimeline = {
   flowing: boolean;
 };
 
-/**
- * 这张卡的节奏。
- *
- * 2.5 秒一行，不是随手定的：后端每分钟也就吐十几行，卡片要是还按机器节拍
- * （275ms 一行）滚，几十秒就把攒下的真话说完，剩下的时间只能编。放慢到和它一
- * 个速度，这一屏才既是真的、又一直在动。
- */
-export const LIVE_TICK_MS = 2500;
-/** 关了动效的人换这一档。 */
-export const LIVE_SLOW_TICK_MS = 4000;
-
 /** 队列里留多少拍。够展开那一屏取满就行，往回翻是「世界动态」的活儿。 */
 const TIMELINE_KEEP = 120;
 
 /**
  * 头一拍先铺满一屏。
  *
- * 一秒不到就跳过去的东西可以一行行长出来，2.5 秒一行不行 —— 那样得对着一张空
- * 卡等一分多钟。先把这一屏铺上，再一行行往下走。
+ * 一秒不到就跳过去的东西可以一行行长出来，几秒一行不行 —— 那样得对着一张空卡
+ * 等上一两分钟。先把这一屏铺上，再一行行往下走。
  */
 const SEED = 48;
 
@@ -180,10 +172,7 @@ const NO_TIMELINE: WorldLogTimeline = {
   flowing: false,
 };
 
-export function useWorldLogTimeline(
-  feed: WorldLogFeed,
-  tickMs: number,
-): WorldLogTimeline {
+export function useWorldLogTimeline(feed: WorldLogFeed): WorldLogTimeline {
   const [line, setLine] = useState<WorldLogTimeline>(NO_TIMELINE);
   /* 拍子由定时器打，读的是最新的 feed —— 所以用 ref，别让 feed 一变就重开表。 */
   const latest = useRef(feed);
@@ -195,7 +184,7 @@ export function useWorldLogTimeline(
   useEffect(() => {
     if (!feed.live) return;
 
-    const t = setInterval(() => {
+    const step = () => {
       const f = latest.current;
       const end = f.start + f.rows.length;
       /* 攒得太多时缓冲会从头丢，丢掉的那些就别等了。 */
@@ -222,10 +211,20 @@ export function useWorldLogTimeline(
           flowing: true,
         };
       });
-    }, tickMs);
+    };
 
-    return () => clearInterval(t);
-  }, [feed.live, tickMs]);
+    /* 一串 timeout 而不是 setInterval：每一拍的间隔都要重摇。 */
+    let t = 0;
+    const beat = () => {
+      t = window.setTimeout(() => {
+        step();
+        beat();
+      }, nextTickMs());
+    };
+    beat();
+
+    return () => window.clearTimeout(t);
+  }, [feed.live]);
 
   return line;
 }

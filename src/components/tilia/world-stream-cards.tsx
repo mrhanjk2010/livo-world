@@ -12,38 +12,44 @@ import {
 import { createPortal } from "react-dom";
 import { usePhoneOverlayRoot } from "@/components/mobile/phone-frame";
 import { StatusBar } from "@/components/mobile/status-bar";
-import {
-  CAUSE_INTERVAL_MS,
-  CAUSE_LOG,
-  CAUSE_SLOW_INTERVAL_MS,
-  type CauseState,
-} from "@/lib/tilia/world-cause-log";
+import { CAUSE_LOG, type CauseState } from "@/lib/tilia/world-cause-log";
 import {
   DESTINY_CLOCK_START,
-  DESTINY_INTERVAL_MS,
   DESTINY_LOG,
-  DESTINY_SLOW_INTERVAL_MS,
   type DestinyState,
 } from "@/lib/tilia/world-destiny-log";
 import {
-  LIVE_SLOW_TICK_MS,
-  LIVE_TICK_MS,
   useWorldLogStream,
   useWorldLogTimeline,
   type WorldLogRow,
 } from "@/lib/tilia/world-log-stream";
 import { WORLD_LOG_RECORDING } from "@/lib/tilia/world-log-recording";
+import { nextTickMs, SLIDE_MS } from "@/lib/tilia/world-stream-tick";
 
 /** 一行的高度，和字号的 leading 对齐。 */
 const LINE_H = 18;
 
-/** 三种流水各自的调子：算是绿的，命运是冷的，因果是暖的。 */
+/**
+ * 三张卡只有一支颜色。
+ *
+ * 原先一张一支色（算是绿的、命运是冷的、因果是暖的），三色并置像三个模块；可这
+ * 一屏说的是「世界背面」——一块还通着电的板子，板子不会分三种颜色发光。收成一
+ * 支绿之后，主次全交给透明度：亮的是这一行的正文，暗的是它的出处、时刻、分数。
+ */
 const GREEN = "#3bff8f";
-const BLUE = "#5aa8ee";
-const PINK = "#ff8874";
-const AMBER = "#ffa16b";
-/** 散掉的命运、断掉的链：退成没有温度的灰蓝。 */
-const GONE = "#7f8ba0";
+
+/** 那一支绿的几档深浅。够用就好，档太多等于没分档。 */
+const INK = {
+  /** 正文：这一行真正在说的事。 */
+  bright: GREEN,
+  strong: `${GREEN}d9`,
+  /** 次要：op、说明的后半截。 */
+  mid: `${GREEN}b0`,
+  /** 辅助：时刻、出处、箭头。 */
+  soft: `${GREEN}80`,
+  /** 退场：散掉的命运、断掉的链、分数。 */
+  faint: `${GREEN}59`,
+} as const;
 
 /**
  * 游标的起点。
@@ -66,12 +72,11 @@ const ANIM_MS = 240;
  *   命运一直在涌现    算出来的东西一枚枚落地，你不在场也照样落
  *   因果链一直在推演  落下的这些又互相咬成链，谁牵出了谁
  *
- * 三张等高，因为它们是并列的三层，不是一主二次。三张一起看到的是「世界在转」
- * 这件事本身；要读清某一层，点开它，同一条流水占满整屏。
+ * 三张等高、同一支绿，因为它们是并列的三层，不是一主二次。三张一起看到的是
+ * 「世界在转」这件事本身；要读清某一层，点开它，同一条流水占满整屏。
  *
- * 三张卡的滚动快慢是不一样的（275ms / 1.5s / 2s），这不是随手调的：算的那层是
- * 机器节拍，命运是一件件落下来的，链要顺着读完才知道在说什么。快慢本身就在说
- * 它们各自是什么东西。
+ * 三张的拍子都是随机的 1–5 秒，各摇各的骰子（见 `world-stream-tick.ts`）——
+ * 整屏看过去此起彼伏，而不是三行一起跳。
  */
 export function WorldStreamCards() {
   /*
@@ -79,12 +84,8 @@ export function WorldStreamCards() {
    * 见 `useWorldLogTimeline`）；连不上（线上静态站、不在内网）就滚录下来的那
    * 一段。两头都是真话，差别只在一个是「正在」、一个是「曾经」。
    */
-  const motion = useMotion();
   const feed = useWorldLogStream();
-  const line = useWorldLogTimeline(
-    feed,
-    motion ? LIVE_TICK_MS : LIVE_SLOW_TICK_MS,
-  );
+  const line = useWorldLogTimeline(feed);
 
   return (
     <div className="absolute bottom-[20px] left-1/2 top-[104px] z-[8] flex w-[340px] -translate-x-1/2 flex-col gap-[10px]">
@@ -96,10 +97,6 @@ export function WorldStreamCards() {
             ? "接的是此刻那条流；后端吐得慢，这张卡就跟着它慢下来"
             : "录下来的一段真日志 —— 这一节车厢外面连不上世界的机房"
         }
-        accent={GREEN}
-        /* 节奏跟着后端的真实产出走，慢得多；这里只影响顶一格的时长。 */
-        interval={LIVE_TICK_MS}
-        slowInterval={LIVE_SLOW_TICK_MS}
         live={line.live}
         waiting={line.live && !line.flowing}
         /* 接上流的时候拍子由那条队打，卡片跟着它走，别自己再打一份。 */
@@ -118,18 +115,12 @@ export function WorldStreamCards() {
         cmd="destiny.watch"
         title="命运一直在涌现"
         note="起、酝、定、散 —— 你不在场也照样落"
-        accent={BLUE}
-        interval={DESTINY_INTERVAL_MS}
-        slowInterval={DESTINY_SLOW_INTERVAL_MS}
         renderRow={(i) => <DestinyRow i={i} />}
       />
       <StreamCard
         cmd="cause.trace"
         title="因果链一直在推演"
         note="一条链从因走到果，末一节是果"
-        accent={AMBER}
-        interval={CAUSE_INTERVAL_MS}
-        slowInterval={CAUSE_SLOW_INTERVAL_MS}
         renderRow={(i) => <CauseRow i={i} />}
       />
     </div>
@@ -158,9 +149,6 @@ function StreamCard({
   cmd,
   title,
   note,
-  accent,
-  interval,
-  slowInterval,
   live = false,
   waiting = false,
   cursor: cursorFromFeed,
@@ -171,9 +159,6 @@ function StreamCard({
   title: string;
   /** 展开后副标题里那半句：这一条流水到底在说什么。 */
   note: string;
-  accent: string;
-  interval: number;
-  slowInterval: number;
   /** 滚的是真的账 —— 表头点一颗灯。 */
   live?: boolean;
   /** 真的都放完了，在等世界开口 —— 那颗灯改成喘气，别让人以为是死了。 */
@@ -183,19 +168,11 @@ function StreamCard({
   renderRow: (i: number) => ReactNode;
 }) {
   const motion = useMotion();
-  const own = useStreamCursor(
-    interval,
-    slowInterval,
-    motion,
-    cursorFromFeed === undefined,
-  );
+  const own = useStreamCursor(cursorFromFeed === undefined);
   const cursor = cursorFromFeed ?? own;
   const [expanded, setExpanded] = useState(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [rows, setRows] = useState(6);
-  /* 顶一格的时长跟着节奏走，但不超过一记轻推：慢的那两张要是滑上一秒，读起来
-     就成了在飘，而不是又落下一行。 */
-  const slide = Math.min(220, Math.round(interval * 0.5));
 
   useLayoutEffect(() => {
     const el = boxRef.current;
@@ -216,12 +193,12 @@ function StreamCard({
         aria-label={`${title}：展开看整屏`}
         className="flex min-h-0 flex-1 flex-col overflow-clip rounded-[16px] border px-[14px] pb-[10px] pt-[9px] text-left backdrop-blur-[20px] transition-transform duration-200 active:scale-[0.99]"
         style={{
-          borderColor: `${accent}24`,
+          borderColor: `${GREEN}24`,
           background: "rgba(0, 0, 0, 0.6)",
         }}
       >
         <div className="flex shrink-0 items-center justify-between gap-[8px] font-mono text-[9px] leading-none">
-          <span className="truncate" style={{ color: `${accent}66` }}>
+          <span className="truncate" style={{ color: `${GREEN}66` }}>
             $ {cmd} · {title}
           </span>
           <span className="flex shrink-0 items-center gap-[5px]">
@@ -229,10 +206,10 @@ function StreamCard({
             {live ? (
               <span
                 className={`inline-block size-[5px] rounded-full ${waiting ? "animate-pulse" : ""}`}
-                style={{ background: accent, boxShadow: `0 0 6px ${accent}` }}
+                style={{ background: GREEN, boxShadow: `0 0 6px ${GREEN}` }}
               />
             ) : null}
-            <span style={{ color: `${accent}99` }}>[展开]</span>
+            <span style={{ color: `${GREEN}99` }}>[展开]</span>
           </span>
         </div>
 
@@ -241,7 +218,6 @@ function StreamCard({
             rows={rows}
             cursor={cursor}
             motion={motion}
-            slide={slide}
             renderRow={renderRow}
           />
         </div>
@@ -252,10 +228,8 @@ function StreamCard({
         cmd={cmd}
         title={title}
         note={note}
-        accent={accent}
         cursor={cursor}
         motion={motion}
-        slide={slide}
         renderRow={renderRow}
         onClose={() => setExpanded(false)}
       />
@@ -279,10 +253,8 @@ function StreamSheet({
   cmd,
   title,
   note,
-  accent,
   cursor,
   motion,
-  slide,
   renderRow,
   onClose,
 }: {
@@ -290,10 +262,8 @@ function StreamSheet({
   cmd: string;
   title: string;
   note: string;
-  accent: string;
   cursor: number;
   motion: boolean;
-  slide: number;
   renderRow: (i: number) => ReactNode;
   onClose: () => void;
 }) {
@@ -351,13 +321,13 @@ function StreamSheet({
           <div className="flex flex-col gap-[3px]">
             <h1
               className="font-mono text-[15px] leading-none"
-              style={{ color: accent }}
+              style={{ color: GREEN }}
             >
               {cmd}
             </h1>
             <p
               className="font-mono text-[10px] leading-none"
-              style={{ color: `${accent}73` }}
+              style={{ color: `${GREEN}73` }}
             >
               {title} · {note}
             </p>
@@ -385,7 +355,6 @@ function StreamSheet({
             rows={rows}
             cursor={cursor}
             motion={motion}
-            slide={slide}
             size={12}
             wrap
             renderRow={renderRow}
@@ -414,7 +383,6 @@ function Stream({
   rows,
   cursor,
   motion,
-  slide,
   size = 11,
   wrap = false,
   renderRow,
@@ -422,7 +390,6 @@ function Stream({
   rows: number;
   cursor: number;
   motion: boolean;
-  slide: number;
   /** 字号：卡片上 11，展开后 12。行高不跟着变，两处对得上才不会跳。 */
   size?: number;
   /** 折行：一行读得全，代价是高矮不齐。卡片上不折，展开后折。 */
@@ -441,8 +408,8 @@ function Stream({
     /* 先摘掉再挂上，中间读一下布局 —— 不读这一下，浏览器不认为动画换过。 */
     el.style.animation = "none";
     void el.offsetWidth;
-    el.style.animation = `livo-log-rise ${slide}ms linear`;
-  }, [cursor, motion, slide]);
+    el.style.animation = `livo-log-rise ${SLIDE_MS}ms linear`;
+  }, [cursor, motion]);
 
   return (
     <div
@@ -473,7 +440,7 @@ function Stream({
   );
 }
 
-/** 要不要动。关了动效的人换一档慢的，不是不动。 */
+/** 顶一格要不要滑过去。关了动效的人只是不滑，行照样落。 */
 function useMotion(): boolean {
   const [motion, setMotion] = useState(true);
 
@@ -484,23 +451,27 @@ function useMotion(): boolean {
   return motion;
 }
 
-/** 游标：每张卡各走各的一份。真数据那张卡的拍子在外面打，这里就不走表。 */
-function useStreamCursor(
-  interval: number,
-  slowInterval: number,
-  motion: boolean,
-  enabled: boolean,
-): number {
+/**
+ * 游标：每张卡各走各的一份，各摇各的骰子。
+ *
+ * 用一串 timeout 而不是 setInterval —— 每一拍的间隔都要重摇（见
+ * `world-stream-tick.ts`）。真数据那张卡的拍子在外面打，这里就不走表。
+ */
+function useStreamCursor(enabled: boolean): number {
   const [cursor, setCursor] = useState(CURSOR_START);
 
   useEffect(() => {
     if (!enabled) return;
-    const t = setInterval(
-      () => setCursor((n) => n + 1),
-      motion ? interval : slowInterval,
-    );
-    return () => clearInterval(t);
-  }, [enabled, motion, interval, slowInterval]);
+    let t = 0;
+    const beat = () => {
+      t = window.setTimeout(() => {
+        setCursor((n) => n + 1);
+        beat();
+      }, nextTickMs());
+    };
+    beat();
+    return () => window.clearTimeout(t);
+  }, [enabled]);
 
   return cursor;
 }
@@ -517,7 +488,7 @@ function pick<T>(pool: readonly T[], i: number): T {
  *
  * world_event 提亮一档：那是世界里真落了一件事（谁去了哪儿、谁改了日程），其
  * 余是它跑动的痕迹（调了哪个模型、花了多少毫秒）。两者混在一起滚，才像在看一
- * 台还开着的机器，而不是一份摘要。
+ * 台还开着的机器，而不是一份摘要。提的是亮度不是色相 —— 这一屏只有一支绿。
  *
  * 这一格还没轮到内容（刚接上流、队列还没铺到这儿）就空着 —— 不拿别的来填：这
  * 张卡说了每行都是真的，就不能掺。
@@ -525,17 +496,23 @@ function pick<T>(pool: readonly T[], i: number): T {
 function CalcRow({ row }: { row?: WorldLogRow }) {
   if (!row) return null;
 
-  const tone = row.kind === "event" ? "#8dffbc" : GREEN;
+  const event = row.kind === "event";
 
   return (
     <>
-      <span className="shrink-0 tabular-nums" style={{ color: `${GREEN}70` }}>
+      <span className="shrink-0 tabular-nums" style={{ color: INK.soft }}>
         {row.at}
       </span>
-      <span className="shrink-0" style={{ color: `${tone}b0` }}>
+      <span
+        className="shrink-0"
+        style={{ color: event ? INK.strong : INK.mid }}
+      >
         {row.op}
       </span>
-      <span className="truncate" style={{ color: tone }}>
+      <span
+        className="truncate"
+        style={{ color: event ? INK.bright : INK.strong }}
+      >
         {row.note ? `· ${row.note}` : ""}
       </span>
     </>
@@ -553,53 +530,59 @@ const DESTINY_TAG: Record<DestinyState, string> = {
 /**
  * 命运一直在涌现：时刻 + 动静 + 车厢 + 短名 + 说人话。
  *
- * 冷暖跟着命运本身走（潜在的蓝、注定的粉橙，和地图上那两种标记同一套色），散
- * 掉的退成灰 —— 一眼扫过去，这张卡在说「这些正在长、那几件已经没下文了」。
+ * 原先冷暖跟着命运本身走（潜在的蓝、注定的粉橙），现在同一支绿，深浅接着说同
+ * 一件事：注定的最亮、潜在的次之、散掉的退到最暗 —— 一眼扫过去仍然读得出「这
+ * 些正在长、那几件已经没下文了」，只是不再靠色相。
  *
- * 时刻每行往前挪两三分钟，走的是和上面那张 tick 一样的把戏：单调、但不匀速。
+ * 时刻每行往前挪两三分钟：单调、但不匀速。
  */
 function DestinyRow({ i }: { i: number }) {
   const line = pick(DESTINY_LOG, i);
   const tone =
-    line.state === "fade" ? GONE : line.kind === "destined" ? PINK : BLUE;
+    line.state === "fade"
+      ? INK.faint
+      : line.kind === "destined"
+        ? INK.bright
+        : INK.mid;
   const at = DESTINY_CLOCK_START + i * 3 - (i % 4);
 
   return (
     <>
-      <span style={{ color: `${GONE}80` }}>{hhmm(at)}</span>
+      <span style={{ color: INK.soft }}>{hhmm(at)}</span>
       <span
         className="shrink-0 rounded-[3px] px-[3px] py-[1px] text-[9px] leading-none"
-        style={{ color: tone, background: `${tone}1f` }}
+        style={{ color: tone, background: `${GREEN}1f` }}
       >
         {DESTINY_TAG[line.state]}
         {line.at === undefined ? "" : ` ${Math.round(line.at * 100)}%`}
       </span>
-      <span className="shrink-0" style={{ color: `${tone}80` }}>
+      <span className="shrink-0" style={{ color: INK.soft }}>
         {line.room}
       </span>
       {/* 短名不许压：一行里先读得出「这是哪一枚命运」，说人话那半句截了无妨 */}
       <span className="shrink-0" style={{ color: tone }}>
         {line.title}
       </span>
-      <span className="truncate" style={{ color: `${GONE}c0` }}>
+      <span className="truncate" style={{ color: INK.mid }}>
         · {line.note}
       </span>
     </>
   );
 }
 
+/** 结论的四种口气，深浅从「成立」到「断了」一路暗下去。 */
 const CAUSE_TAG: Record<CauseState, { label: string; tone: string }> = {
-  done: { label: "成立", tone: GREEN },
-  solve: { label: "推演", tone: AMBER },
-  hold: { label: "差一件", tone: `${AMBER}99` },
-  drop: { label: "断了", tone: GONE },
+  done: { label: "成立", tone: INK.bright },
+  solve: { label: "推演", tone: INK.mid },
+  hold: { label: "差一件", tone: INK.soft },
+  drop: { label: "断了", tone: INK.faint },
 };
 
 /**
  * 因果链一直在推演：一条链从因走到果，末一节是果。
  *
- * 箭头用星图上那支绿 —— 图里的线和这里的箭头是同一件事，只是一个画出来、一个
- * 写出来。前面的因压暗、末一节提亮：一行字里也要看得出方向。
+ * 箭头和星图上的线是同一支绿、同一件事，只是一个画出来、一个写出来。前面的因压
+ * 暗、末一节提亮：一行字里也要看得出方向。
  */
 function CauseRow({ i }: { i: number }) {
   const line = pick(CAUSE_LOG, i);
@@ -611,12 +594,8 @@ function CauseRow({ i }: { i: number }) {
       <span className="flex min-w-0 flex-1 items-center gap-[4px] truncate">
         {line.chain.map((term, k) => (
           <span key={`${term}-${k}`} className="flex items-center gap-[4px]">
-            {k > 0 ? <span style={{ color: `${GREEN}80` }}>▸</span> : null}
-            <span
-              style={{
-                color: k === last ? AMBER : `${AMBER}80`,
-              }}
-            >
+            {k > 0 ? <span style={{ color: INK.soft }}>▸</span> : null}
+            <span style={{ color: k === last ? INK.bright : INK.mid }}>
               {term}
             </span>
           </span>
@@ -625,7 +604,7 @@ function CauseRow({ i }: { i: number }) {
       <span className="shrink-0" style={{ color: tag.tone }}>
         {tag.label}
       </span>
-      <span className="shrink-0 tabular-nums" style={{ color: `${GONE}99` }}>
+      <span className="shrink-0 tabular-nums" style={{ color: INK.faint }}>
         {line.score.toFixed(2)}
       </span>
     </>
