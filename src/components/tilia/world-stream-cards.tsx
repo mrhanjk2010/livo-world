@@ -603,13 +603,15 @@ function DestinyRow({ i }: { i: number }) {
  *
  * 分行与字段见 `world-cause-log.ts`。这里只管一件事 —— 让眼睛先接住果。
  *
- * 这一屏只有一样东西是亮的：果的那句正文。别的全压成同一层低语 —— 伏笔、目标、
- * 因，连果自己的交代（因 1、因 2……和那个差一口气就落不下来的契机「状态」）也一
- * 样，字段名再低一档。所以一屏滚过去是「一片低语里蹦出一行亮的」，那一亮就是一次
- * 推演落地；想知道它凭什么落下，再往那几行低语里看。
+ * 深浅只分两层，分的不是「哪个字段更重要」，是「这是链本身，还是链的交代」：
  *
- * 分档没有拉细：多分一档不如让唯一那一亮更醒目。果那一行还带一点辉光，尾巴上挂着
- * 它和因怎么咬上的（兑现 / 呼应 / 因果），胶囊也压到低语那一层。
+ *   链本身  伏笔、目标、因、果 —— 四个字段一样亮，谁也不压谁
+ *   交代    果底下缩进那几行（因 1、因 2……和「状态」那个契机）—— 压成低语
+ *
+ * 果多带一点辉光，所以一屏滚过去仍是「几行齐亮里那一行更烫」，但读的时候四个字段
+ * 是一条连着的话，不该有一半退到背景里去。
+ *
+ * 尾巴上那颗胶囊（兑现 / 呼应 / 因果）算标注不算正文，压在两层之间。
  *
  * 这张卡仍是那一支绿，主次全交给透明度；换色是中间那张卡分段用的手段。
  */
@@ -626,8 +628,10 @@ function CauseRow({ i }: { i: number }) {
   if (row.kind === "effect") {
     return (
       <>
-        {/* 连「果」这两个字也压着：亮的该是那句话本身，不是它的字段名 */}
-        <span className="shrink-0" style={{ color: INK.faint }}>
+        <span
+          className="shrink-0"
+          style={{ color: INK.bright, textShadow: `0 0 9px ${GREEN}40` }}
+        >
           【{CAUSE_LABEL.effect}】
         </span>
         <span
@@ -638,7 +642,7 @@ function CauseRow({ i }: { i: number }) {
         </span>
         <span
           className="livo-log-chip ml-auto shrink-0 rounded-[3px] px-[3px] py-[1px] text-[9px] leading-none"
-          style={{ color: INK.soft, background: `${GREEN}17` }}
+          style={{ color: INK.mid, background: `${GREEN}1f` }}
         >
           {row.relation}
         </span>
@@ -675,12 +679,13 @@ function CauseRow({ i }: { i: number }) {
     );
   }
 
+  /* 伏笔、目标、因和果一样亮：它们是同一条话的四截，不是果的背景。 */
   return (
     <>
-      <span className="shrink-0" style={{ color: INK.faint }}>
+      <span className="shrink-0" style={{ color: INK.bright }}>
         【{CAUSE_LABEL[row.kind]}】
       </span>
-      <span className="truncate" style={{ color: INK.soft }}>
+      <span className="truncate" style={{ color: INK.bright }}>
         {row.text}
       </span>
     </>
