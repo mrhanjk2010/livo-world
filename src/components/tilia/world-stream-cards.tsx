@@ -55,7 +55,6 @@ const INK = {
   faint: `${GREEN}59`,
 } as const;
 
-
 /**
  * 游标的起点。
  *
@@ -606,8 +605,9 @@ function DestinyRow({ i }: { i: number }) {
  * 边算一边补，同一件事这会儿是果、下一段就成了因。压暗只是让眼睛先接住此刻新结出来
  * 的那一组。
  *
- * 果多带一点辉光，胶囊（兑现 / 呼应 / 因果）算标注，压在亮的那层里稍低一档。整链那
- * 行不缩进：它收的是一整条链，不归某一个果。式子怎么算出来的见 `world-cause-log.ts`。
+ * 果多带一点辉光。胶囊（兑现 / 呼应 / 因果）跟在【果】后头，是这一行的判决，不是注
+ * 脚。整链那行不缩进：它收的是一整条链，不归某一个果。式子怎么算出来的见
+ * `world-cause-log.ts`。
  */
 const CAUSE_LABEL = {
   seed: "伏笔",
@@ -628,17 +628,32 @@ function CauseRow({ i }: { i: number }) {
         >
           【{CAUSE_LABEL.effect}】
         </span>
+        {/*
+          兑现 / 呼应 / 因果 这三个词是这一行的判决 —— 果和前面那些咬合的方式。原
+          先按注脚做（9px、压到七成、钉在行尾），可它说的事比注脚重：同样几件因摆
+          在那儿，是兑现还是呼应，差的是这条链算不算数。所以跟正文一样大（1em，卡
+          片上 11、展开后 12 都跟着走）、跟正文一样亮，只留背景那点方块说明它是标注。
+
+          位置紧跟在【果】后面，不钉行尾：展开后整行退回文字流好折行，钉在尾巴上的
+          标签一旦碰上刚好折满的句子就会被挤到下一行开头、单独站着，读起来像跟「因
+          1」「状态」平级的新字段，而它是上面那句的判决。跟着标签走就没这问题 ——
+          两种状态位置一样，也顺过来了：这是一枚果，咬合方式是兑现。
+        */}
+        <span
+          className="livo-log-chip shrink-0 self-center rounded-[3px] px-[4px] py-[1px] align-middle leading-none"
+          style={{
+            fontSize: "1em",
+            color: INK.bright,
+            background: `${GREEN}29`,
+          }}
+        >
+          {row.relation}
+        </span>
         <span
           className="truncate"
           style={{ color: INK.bright, textShadow: `0 0 9px ${GREEN}40` }}
         >
           {row.text}
-        </span>
-        <span
-          className="livo-log-chip ml-auto shrink-0 rounded-[3px] px-[3px] py-[1px] text-[9px] leading-none"
-          style={{ color: INK.mid, background: `${GREEN}1f` }}
-        >
-          {row.relation}
         </span>
       </>
     );
