@@ -213,11 +213,20 @@ function StreamCard({
           background: "rgba(0, 0, 0, 0.6)",
         }}
       >
-        <div className="flex shrink-0 items-center justify-between gap-[8px] font-mono text-[9px] leading-none">
-          <span className="truncate" style={{ color: `${GREEN}66` }}>
-            $ {cmd} · {title}
+        {/*
+          表头比正文大一号。这三张卡是并列的三层，得先认出「这一张在说什么」再去读
+          它滚的东西；表头跟正文一样小（原先 9px、还压到四成）就成了流水的一部分，
+          一屏扫过去只看见字在动，不知道分了几摊。
+
+          命令行那截仍压着：它是这张卡的门牌，中文标题才是名字。右边 [展开] 留在
+          小字里 —— 它是个开关，不参与「这一张在说什么」。
+        */}
+        <div className="flex shrink-0 items-center justify-between gap-[8px] font-mono leading-none">
+          <span className="truncate text-[13px]">
+            <span style={{ color: `${GREEN}59` }}>$ {cmd} · </span>
+            <span style={{ color: `${GREEN}b3` }}>{title}</span>
           </span>
-          <span className="flex shrink-0 items-center gap-[5px]">
+          <span className="flex shrink-0 items-center gap-[5px] text-[9px]">
             {/* 真账在滚的时候点一颗灯：一眼分得出这张卡此刻接没接上 */}
             {live ? (
               <span
