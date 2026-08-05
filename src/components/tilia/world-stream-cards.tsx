@@ -38,9 +38,7 @@ const LINE_H = 18;
  * 一屏说的是「世界背面」——一块还通着电的板子，板子不会分三种颜色发光。收成一
  * 支绿之后，主次全交给透明度：亮的是这一行的正文，暗的是它的出处、时刻、分数。
  *
- * 后来加回来的两支色（命运的分段色、果的橘）不是给卡分身份的，是在一张卡内部标结
- * 构 —— 判断标准仍是这条：换色只用来分清「这几行是一件事」，不用来分「这是第几张
- * 卡」。
+ * 中间那张的分段色是唯一的例外，而它也不是给卡分身份的，是在一张卡内部标接缝。
  */
 const GREEN = "#3bff8f";
 
@@ -57,28 +55,6 @@ const INK = {
   faint: `${GREEN}59`,
 } as const;
 
-/**
- * 果那一支橘。
- *
- * 第三张卡上，伏笔、目标、因、果四个字段是穿插着滚过去的，同一支绿里只靠辉光分不
- * 出哪行是果 —— 一屏四五行齐亮，眼睛没有落点。橘是绿的对角色：不用调亮度就能从一
- * 片绿里跳出来，而板子整体还是同一块在发光。
- *
- * 果底下缩进那几行（因 1、因 2……和状态）跟着走橘：它们是这个果的交代，跟果同一
- * 支色才看得出「这几行属于上面那一行」，而不是又起了新的一件事。深浅照旧压低。
- */
-const AMBER = "#ffa63b";
-
-const FRUIT = {
-  /** 果的正文。 */
-  bright: AMBER,
-  /** 尾巴上那颗胶囊：兑现 / 呼应 / 因果。 */
-  mid: `${AMBER}b3`,
-  /** 果的交代：因 1、因 2、状态的正文。 */
-  soft: `${AMBER}8c`,
-  /** 那几行的字段名。 */
-  faint: `${AMBER}5e`,
-} as const;
 
 /**
  * 游标的起点。
@@ -104,10 +80,8 @@ const ANIM_MS = 240;
  * 三张等高，因为它们是并列的三层，不是一主二次。三张一起看到的是「世界在转」这
  * 件事本身；要读清某一层，点开它，同一条流水占满整屏。
  *
- * 颜色以绿为底，两处例外都是为了看清结构：中间那张一枚命运一个颜色，因为一段接
- * 一段都是成篇的稿子，得靠换色才看得出接缝在哪儿（见 `DestinyRow`）；第三张的果
- * 走橘，因为四个字段是穿插滚的，同色只能靠亮度分，一屏齐亮就没有落点了（见
- * `CauseRow`）。
+ * 颜色上第一、三张走同一支绿，中间那张一枚命运一个颜色 —— 那张卡上一段接一段
+ * 都是成篇的稿子，得靠换色才看得出接缝在哪儿（见 `DestinyRow`）。
  *
  * 拍子都是随机的、各摇各的骰子，但快慢分两档（见 `world-stream-tick.ts`）：算的
  * 那张 0.1–0.5 秒，快到只读得清一两个词；命运和因果那两张 1–5 秒，慢到每行读得
@@ -619,21 +593,21 @@ function DestinyRow({ i }: { i: number }) {
  *
  * 分行与字段见 `world-cause-log.ts`。这里只管一件事 —— 让眼睛先接住果。
  *
- * 这张卡分两支色，分的不是「哪个字段更重要」，是「这是铺垫，还是结出来的那一下」：
+ * 深浅只分两层，分的不是「哪个字段更重要」，是「这是铺垫，还是结出来的那一下」：
  *
- *   绿  伏笔、目标、因 —— 三个字段一样亮，谁也不压谁，是一条连着的话
- *   橘  果，和它底下的式子、交代（因 1、因 2……和「状态」那个契机），以及链尾整链
+ *   亮  果，连它底下整组交代 —— 式子、因 1、因 2……、状态、链尾那行整链
+ *   暗  伏笔、目标、因 —— 铺垫，一屏里退到背面去
  *
- * 换色而不是换亮度：四个字段是穿插着滚的，同一支绿里一屏齐亮四五行，眼睛没有落
- * 点；橘从绿里跳出来，一眼就知道这行是果。铺垫那三行仍然全亮 —— 它们是果的上半
- * 句，不该退到背景里去。
+ * 果那一整组一起亮，不在组内再分层：一个果凭什么成立，是「哪几件算数了」加「凭什么
+ * 正好此刻」一起说完的，把交代压成小字等于让人只读得到结论。这一组连着读，才是推演
+ * 本身。
  *
- * 果底下那几行跟着走橘、但压暗：同色说明「归上面那一行」，压暗说明「是交代不是新
- * 起一件事」。尾巴上那颗胶囊（兑现 / 呼应 / 因果）算果的标注，也在橘里，深浅居中。
+ * 铺垫那三行压暗不是因为不重要，是因为它们在这一屏里已经各自当过一次果 —— 世界一
+ * 边算一边补，同一件事这会儿是果、下一段就成了因。压暗只是让眼睛先接住此刻新结出来
+ * 的那一组。
  *
- * 式子（`C1 … -E2 …-> R2 …`）和链尾那行整链跟交代同一档暗 —— 骨架是给扫的，不跟正
- * 文抢。整链那行不缩进：它收的是一整条链，不归某一个果。式子怎么算出来的见
- * `world-cause-log.ts`。
+ * 果多带一点辉光，胶囊（兑现 / 呼应 / 因果）算标注，压在亮的那层里稍低一档。整链那
+ * 行不缩进：它收的是一整条链，不归某一个果。式子怎么算出来的见 `world-cause-log.ts`。
  */
 const CAUSE_LABEL = {
   seed: "伏笔",
@@ -650,19 +624,19 @@ function CauseRow({ i }: { i: number }) {
       <>
         <span
           className="shrink-0"
-          style={{ color: FRUIT.bright, textShadow: `0 0 10px ${AMBER}59` }}
+          style={{ color: INK.bright, textShadow: `0 0 9px ${GREEN}40` }}
         >
           【{CAUSE_LABEL.effect}】
         </span>
         <span
           className="truncate"
-          style={{ color: FRUIT.bright, textShadow: `0 0 10px ${AMBER}59` }}
+          style={{ color: INK.bright, textShadow: `0 0 9px ${GREEN}40` }}
         >
           {row.text}
         </span>
         <span
           className="livo-log-chip ml-auto shrink-0 rounded-[3px] px-[3px] py-[1px] text-[9px] leading-none"
-          style={{ color: FRUIT.mid, background: `${AMBER}1f` }}
+          style={{ color: INK.mid, background: `${GREEN}1f` }}
         >
           {row.relation}
         </span>
@@ -675,7 +649,7 @@ function CauseRow({ i }: { i: number }) {
       <>
         <span className="livo-log-indent w-[12px] shrink-0" aria-hidden />
         {/* 式子整句一格色：符号和短名分色只会让这行看着更碎，等宽本身已经在分栏了 */}
-        <span className="truncate" style={{ color: FRUIT.soft }}>
+        <span className="truncate" style={{ color: INK.strong }}>
           {row.text}
         </span>
       </>
@@ -686,10 +660,10 @@ function CauseRow({ i }: { i: number }) {
     return (
       <>
         {/* 整链不缩进：它是这一条链的收口，不是某个果的交代 */}
-        <span className="shrink-0" style={{ color: FRUIT.mid }}>
+        <span className="shrink-0" style={{ color: INK.mid }}>
           {row.label}
         </span>
-        <span className="truncate" style={{ color: FRUIT.soft }}>
+        <span className="truncate" style={{ color: INK.strong }}>
           {row.text}
         </span>
       </>
@@ -699,12 +673,12 @@ function CauseRow({ i }: { i: number }) {
   if (row.kind === "from") {
     return (
       <>
-        {/* 缩进加同一支橘：这几行是上面那个果的交代，不是新起一件事 */}
+        {/* 缩进那一格是给眼睛的：这几行是上面那个果的交代，不是新起一件事 */}
         <span className="livo-log-indent w-[12px] shrink-0" aria-hidden />
-        <span className="shrink-0 tabular-nums" style={{ color: FRUIT.faint }}>
+        <span className="shrink-0 tabular-nums" style={{ color: INK.mid }}>
           因{row.index}
         </span>
-        <span className="truncate" style={{ color: FRUIT.soft }}>
+        <span className="truncate" style={{ color: INK.bright }}>
           {row.text}
         </span>
       </>
@@ -715,23 +689,23 @@ function CauseRow({ i }: { i: number }) {
     return (
       <>
         <span className="livo-log-indent w-[12px] shrink-0" aria-hidden />
-        <span className="shrink-0" style={{ color: FRUIT.faint }}>
+        <span className="shrink-0" style={{ color: INK.mid }}>
           状态
         </span>
-        <span className="truncate" style={{ color: FRUIT.soft }}>
+        <span className="truncate" style={{ color: INK.bright }}>
           {row.text}
         </span>
       </>
     );
   }
 
-  /* 伏笔、目标、因和果一样亮：它们是同一条话的四截，不是果的背景。 */
+  /* 铺垫压暗：它们各自都当过一次果，这一屏先让位给刚结出来的那一组。 */
   return (
     <>
-      <span className="shrink-0" style={{ color: INK.bright }}>
+      <span className="shrink-0" style={{ color: INK.faint }}>
         【{CAUSE_LABEL[row.kind]}】
       </span>
-      <span className="truncate" style={{ color: INK.bright }}>
+      <span className="truncate" style={{ color: INK.soft }}>
         {row.text}
       </span>
     </>
