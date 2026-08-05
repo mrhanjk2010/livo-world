@@ -312,6 +312,12 @@ body {
 .livo-log-wrap .livo-log-row span.livo-log-chip {
   display: inline-block;
   white-space: nowrap;
+  /*
+   * 上面那条悬挂缩进是会继承的，而 inline-block 自成一个块容器 —— 胶囊会拿它当
+   * 自己第一行的缩进，把里面那两个字往左拽出边框、正好压在时刻上，宽度也跟着塌
+   * 成只剩内边距。缩进只该管整行，不该管行里这颗小方块。
+   */
+  text-indent: 0;
 }
 
 /*
