@@ -13,9 +13,21 @@
  *   因    真发生了的一件事
  *   果    被前面这些推出来的一件事
  *
- * 果多一层：它得交代自己是怎么来的 —— 哪几件算数了（因 1、因 2、因 3……），以及
- * 是什么契机让它正好在这时候落下（状态）。上面那些因是「发生过什么」，果里这几条
- * 是「世界最后数了哪几件」，两份不总是一样，这中间的差就是推演本身。
+ * 果多两层。一层是式子：这一步在代数上长什么样 ——
+ *
+ *   C1 茶室的琴 -E2 立起检查牌-> R2 琴腹没被翻
+ *
+ * 一层是交代：哪几件算数了（因 1、因 2、因 3……），以及是什么契机让它正好在这时候
+ * 落下（状态）。上面那些因是「发生过什么」，果里这几条是「世界最后数了哪几件」，两
+ * 份不总是一样，这中间的差就是推演本身。
+ *
+ * 式子和正文说的是同一件事，只是一份给眼睛、一份给机器：正文是一整句话（「巡警敲了
+ * 敲琴腹听声，签字放行」），式子是它的骨架。所以每个因、果除了正文还带一个短名，短
+ * 名进式子 —— 整句排进式子会当场溢出，而骨架要一眼扫得完才有用。
+ *
+ * 一条链走完再收一行整链：`LCC = [C0 … -E1-> R1=C1 … |-> G]`。中段每个果都写成
+ * `Rj=Cj`，因为这一步的果原地就是下一步的因 —— 等号是链能长这么长的全部原因。够长
+ * 又收进了那个全局锚 G 的才配叫 LCC，别的只是几步，叫短链。
  *
  * 状态说的不是这条链算到哪一步，是那个契机本身：某人此刻的心境或情绪、车外的天
  * 气、谁刚做了件什么事、说了句什么话。同样几件因摆在那儿，差这一口气就落不下来
@@ -43,11 +55,12 @@ export type CauseNote =
   | { kind: "seed"; text: string }
   /** 目标：谁想要什么。 */
   | { kind: "goal"; text: string }
-  /** 因：真发生了的一件事。 */
-  | { kind: "cause"; text: string }
-  /** 果：被推出来的一件事，得交代自己怎么来的。 */
+  /** 因：真发生了的一件事。式子里的 E。 */
+  | { kind: "cause"; term: string; text: string }
+  /** 果：被推出来的一件事，得交代自己怎么来的。式子里的 R。 */
   | {
       kind: "effect";
+      term: string;
       text: string;
       relation: CauseRelation;
       /** 世界最后数了哪几件。顺序就是它数的顺序。 */
@@ -59,12 +72,29 @@ export type CauseNote =
 /** 一条链。四种字段穿插着写，不排队。 */
 export type CauseChain = {
   id: string;
+  /** C0：这条链的根因短名 —— 最先摆在那儿、后面全从它长出来的那一件。 */
+  root: string;
+  /** 末端那个果收进了全局锚 G。多数链没走到，留假。 */
+  converges?: boolean;
   notes: readonly CauseNote[];
 };
+
+/**
+ * 全局唯一那个终极收敛锚 G。
+ *
+ * 写成模块常量而不是每条链自己一个：G 只有一个，链要么收进它、要么没走到。分给每
+ * 条链一份就等于说「各有各的终点」，那这一屏也就没什么可推演的了。
+ */
+const ANCHOR = "把 XK-101 带回万晁";
+
+/** 够得上「长程」的最短跨度。短于这个的链不叫 LCC，只是几步。 */
+const LONG_RANGE = 3;
 
 export const CAUSE_CHAINS: readonly CauseChain[] = [
   {
     id: "violin-to-cab",
+    root: "那句音乐会",
+    converges: true,
     notes: [
       {
         kind: "seed",
@@ -76,14 +106,17 @@ export const CAUSE_CHAINS: readonly CauseChain[] = [
       },
       {
         kind: "cause",
+        term: "夜场的灯亮了",
         text: "音乐厅夜场的灯亮了，三角钢琴自己响了半句，四个人都留在了地毯上。",
       },
       {
         kind: "cause",
+        term: "你说你拉过琴",
         text: "夜场里你说起自己以前也拉琴。这句话被在场的人听见了，不止一个。",
       },
       {
         kind: "effect",
+        term: "茶室的琴",
         text: "茶室矮柜旁多了一把小提琴，弦还温着——施塔恩把它托起来，连弓一并收进你够得到的距离。",
         relation: "兑现",
         from: [
@@ -96,10 +129,12 @@ export const CAUSE_CHAINS: readonly CauseChain[] = [
       },
       {
         kind: "cause",
+        term: "立起检查牌",
         text: "第十日清晨进例行安检区段，餐车长桌推到一侧，临时立起检查牌。",
       },
       {
         kind: "effect",
+        term: "琴腹没被翻",
         text: "琴挡过了第一次开箱。巡警敲了敲琴腹听声，签字放行。",
         relation: "因果",
         from: [
@@ -116,10 +151,12 @@ export const CAUSE_CHAINS: readonly CauseChain[] = [
       },
       {
         kind: "cause",
+        term: "你问起车头",
         text: "检查散场后，你向任轻义问起了车头。他没答应也没拒绝，只说这话他能替你递。",
       },
       {
         kind: "effect",
+        term: "折棚门开半扇",
         text: "锁了十天的折棚门开了半扇。门后是一节乘客从不被带进来的车厢，列车长在里面等着。",
         relation: "兑现",
         from: [
@@ -134,23 +171,34 @@ export const CAUSE_CHAINS: readonly CauseChain[] = [
   },
   {
     id: "old-ticket",
+    root: "座垫的凹陷",
     notes: [
       {
         kind: "seed",
         text: "剧场最后一排的座垫上有一道凹陷，深得不像一场戏坐出来的。",
       },
-      { kind: "cause", text: "罗兰在那儿坐了整场，一次没起身。" },
+      {
+        kind: "cause",
+        term: "他一场没起身",
+        text: "罗兰在那儿坐了整场，一次没起身。",
+      },
       {
         kind: "effect",
+        term: "三年前的票",
         text: "凹陷里翻出一张旧车票，日期比这趟车早了三年。",
         relation: "呼应",
         from: ["那道凹陷", "他一整场没起身", "散场后没人去收拾最后一排"],
         state:
           "散场时剧场的灯只灭了一半——扫地的人被临时叫去餐车帮忙，最后一排就那么空着亮了半小时。",
       },
-      { kind: "cause", text: "车票被人从门缝塞进了卧铺乙。" },
+      {
+        kind: "cause",
+        term: "票塞进门缝",
+        text: "车票被人从门缝塞进了卧铺乙。",
+      },
       {
         kind: "effect",
+        term: "灯亮了一整夜",
         text: "卧铺乙那盏灯亮了一整夜，天亮才灭。谁塞的票还没人问起。",
         relation: "因果",
         from: ["门缝里那张票", "里面的人认得那个日期"],
@@ -161,6 +209,7 @@ export const CAUSE_CHAINS: readonly CauseChain[] = [
   },
   {
     id: "harmonica",
+    root: "铜面的磨痕",
     notes: [
       {
         kind: "seed",
@@ -170,9 +219,14 @@ export const CAUSE_CHAINS: readonly CauseChain[] = [
         kind: "goal",
         text: "他想让你听见那半段，又不想解释自己为什么还记得。",
       },
-      { kind: "cause", text: "会客厅的灯被人压到最低，鹿头标本下只剩一圈光。" },
+      {
+        kind: "cause",
+        term: "灯压到最低",
+        text: "会客厅的灯被人压到最低，鹿头标本下只剩一圈光。",
+      },
       {
         kind: "effect",
+        term: "那半段吹完了",
         text: "那半段曲子吹完了，比他自己预想的长。",
         relation: "呼应",
         from: ["铜面上那块磨痕", "灯压到最低", "屋里只有你们两个"],
@@ -183,11 +237,17 @@ export const CAUSE_CHAINS: readonly CauseChain[] = [
   },
   {
     id: "greenhouse-bloom",
+    root: "拧过的阀门",
     notes: [
       { kind: "seed", text: "温室的暖气阀被人往上拧过半圈，没人报修。" },
-      { kind: "cause", text: "暖气一夜没停，玻璃上的霜化到了框边。" },
+      {
+        kind: "cause",
+        term: "暖气一夜没停",
+        text: "暖气一夜没停，玻璃上的霜化到了框边。",
+      },
       {
         kind: "effect",
+        term: "蜜兰庭花开了",
         text: "蜜兰庭花今早开了，比时令早了十来天。",
         relation: "因果",
         from: ["拧过半圈的阀门", "暖气一夜没停", "夜里没人来关窗"],
@@ -198,21 +258,32 @@ export const CAUSE_CHAINS: readonly CauseChain[] = [
   },
   {
     id: "scoreboard",
+    root: "牌上的名字",
     notes: [
       { kind: "seed", text: "台球室记分牌上多了个陌生名字，笔迹很稳。" },
       { kind: "goal", text: "世界想看看有没有人去擦。" },
-      { kind: "cause", text: "牌桌的赌注加到了第三轮，围观的人多了一圈。" },
+      {
+        kind: "cause",
+        term: "赌注到第三轮",
+        text: "牌桌的赌注加到了第三轮，围观的人多了一圈。",
+      },
       {
         kind: "effect",
+        term: "他摘了手套",
         text: "有人摘了手套下那一杆——任轻义的手，一整趟车里第一次露出来。",
         relation: "兑现",
         from: ["记分牌上那个陌生名字", "赌注加到第三轮", "围观的人足够多"],
         state:
           "任轻义那晚心情不坏，笑着报了句「重利轻义的轻义」——人多的时候他很少提自己的名字。",
       },
-      { kind: "cause", text: "一整天过去，名字还在，抹布就搁在牌下面。" },
+      {
+        kind: "cause",
+        term: "一天没人碰",
+        text: "一整天过去，名字还在，抹布就搁在牌下面。",
+      },
       {
         kind: "effect",
+        term: "名字留到隔天",
         text: "没人去擦。名字留到了第二天，抹布还搁在牌下面。",
         relation: "呼应",
         from: ["那个陌生名字", "一整天没人碰记分牌"],
@@ -223,15 +294,21 @@ export const CAUSE_CHAINS: readonly CauseChain[] = [
   },
   {
     id: "scarf",
+    root: "系了又解的结",
     notes: [
       { kind: "seed", text: "那条丝巾又系了一遍，结打在同一侧，紧得多余。" },
       {
         kind: "goal",
         text: "散庭·姚想在你身上留一处别人挪不掉的地方——他自己不会承认这句。",
       },
-      { kind: "cause", text: "咖啡厅靠窗那个位子空了两天，谁都没坐。" },
+      {
+        kind: "cause",
+        term: "那位子空着",
+        text: "咖啡厅靠窗那个位子空了两天，谁都没坐。",
+      },
       {
         kind: "effect",
+        term: "丝巾到你手上",
         text: "丝巾最后系到了你手上，在观景廊那阵灌雪的风里。咖啡厅那个位子还空着。",
         relation: "兑现",
         from: ["他反复系了又解的那个结", "战胜城市的夜话他不能参加"],
@@ -249,36 +326,99 @@ export type CauseStreamRow =
   | { kind: "seed" | "goal" | "cause"; text: string }
   /** 果：这一行提亮，尾巴上挂着咬合方式。 */
   | { kind: "effect"; text: string; relation: CauseRelation }
+  /** 本步式子：`C1 茶室的琴 -E2 立起检查牌-> R2 琴腹没被翻`。 */
+  | { kind: "step"; text: string }
   /** 果怎么来的：因 1、因 2、因 3…… */
   | { kind: "from"; index: number; text: string }
-  /** 这一咬算到哪一步。 */
-  | { kind: "state"; text: string };
+  /** 让它正好这时候落下的那个契机。 */
+  | { kind: "state"; text: string }
+  /** 整条链收口那一行。够长且收进 G 的才配叫 LCC。 */
+  | { kind: "chain"; label: string; text: string };
 
+/**
+ * 摊平成一行行，顺手把式子算出来。
+ *
+ * 式子不是另写一份，是从链本身读出来的 —— 一条链里第 j 个果就是 Rj，它的 Cj 是上
+ * 一个果（第一个果的 C0 写在链上），Ej 是紧挨着它的那个因。所以只要链是按发生顺序
+ * 写的，`Ri = Ci+1` 这条不变式自动成立，不用手写、也没法写错。
+ *
+ * 符号一律用 ASCII（`-E2->`、`|-> G`）：这一屏是块通着电的板子，`-->` 比 `→` 更像
+ * 它自己的语言，也免了等宽字体里那些箭头忽宽忽窄。
+ */
 function flatten(chains: readonly CauseChain[]): readonly CauseStreamRow[] {
   const rows: CauseStreamRow[] = [];
 
   for (const chain of chains) {
+    /* 边走边攒式子的中段，走到链尾拼成整条。 */
+    const steps: string[] = [];
+    /* 最近那个因就是这一步的 E；果一落下就用掉，下一步得等新的因。 */
+    let pending: string | null = null;
+
     for (const note of chain.notes) {
       if (note.kind !== "effect") {
         rows.push({ kind: note.kind, text: note.text });
+        if (note.kind === "cause") pending = note.term;
         continue;
       }
+
+      const j = steps.length + 1;
+      const from = j === 1 ? `C0 ${chain.root}` : `C${j - 1} ${steps[j - 2]}`;
 
       rows.push({
         kind: "effect",
         text: note.text,
         relation: note.relation,
       });
-      /* 果后面紧跟它的交代：先数因，再说算到哪一步。顺序不能反 —— 一屏里眼睛
-         接住果那一行，往下就该看见它凭什么成立。 */
+      /* 果后面先摆式子：这一步的骨架。骨架之后才是它凭什么成立（数了哪几件因）、
+         凭什么正好此刻（状态）—— 那两样式子里装不下。 */
+      rows.push({
+        kind: "step",
+        text: pending
+          ? `${from} -E${j} ${pending}-> R${j} ${note.term}`
+          : `${from} -E${j}-> R${j} ${note.term}`,
+      });
       note.from.forEach((text, i) => {
         rows.push({ kind: "from", index: i + 1, text });
       });
       rows.push({ kind: "state", text: note.state });
+
+      steps.push(note.term);
+      pending = null;
     }
+
+    if (steps.length > 0) rows.push(chainRow(chain, steps));
   }
 
   return rows;
+}
+
+/**
+ * 链尾那一行：`LCC = [C0 那句音乐会 -E1-> R1=C1 茶室的琴 ... |-> G]`。
+ *
+ * 中段每个果都写成 `Rj=Cj`：这一步的果原地就是下一步的因，等号是这条链能长这么长
+ * 的全部原因。末端那个不写等号 —— 它后面没有下一步了，要么收进 G，要么就停在那儿。
+ *
+ * 名字也是算出来的：够长（跨度 ≥ LONG_RANGE）又收进了 G 才叫 LCC，别的只是几步，
+ * 叫「短链」。世界推演过的短链照样滚过去，只是不冒充长程。
+ */
+function chainRow(chain: CauseChain, steps: readonly string[]): CauseStreamRow {
+  const parts = [`C0 ${chain.root}`];
+
+  steps.forEach((term, i) => {
+    const j = i + 1;
+    const last = j === steps.length;
+    parts.push(`-E${j}->`, last ? `R${j} ${term}` : `R${j}=C${j} ${term}`);
+  });
+
+  if (chain.converges) parts.push(`|-> G ${ANCHOR}`);
+
+  const long = steps.length >= LONG_RANGE && chain.converges;
+
+  return {
+    kind: "chain",
+    label: long ? "LCC" : "短链",
+    text: `= [${parts.join(" ")}]`,
+  };
 }
 
 /** 一行一行滚的那些链。 */
