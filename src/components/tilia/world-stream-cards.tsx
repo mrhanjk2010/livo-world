@@ -28,7 +28,7 @@ import {
   CALC_TICK,
   nextTickMs,
   READ_TICK,
-  SLIDE_MS,
+  slideMs,
   type TickRange,
 } from "@/lib/tilia/world-stream-tick";
 
@@ -82,7 +82,7 @@ const ANIM_MS = 240;
  * 「世界在转」这件事本身；要读清某一层，点开它，同一条流水占满整屏。
  *
  * 拍子都是随机的、各摇各的骰子，但快慢分两档（见 `world-stream-tick.ts`）：算的
- * 那张 0.2–1 秒，快到只读得清一两个词；命运和因果那两张 1–5 秒，慢到每行读得
+ * 那张 0.1–0.5 秒，快到只读得清一两个词；命运和因果那两张 1–5 秒，慢到每行读得
  * 完。快慢本身就在说它们各自是什么东西。
  */
 export function WorldStreamCards() {
@@ -184,6 +184,7 @@ function StreamCard({
   const [expanded, setExpanded] = useState(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [rows, setRows] = useState(6);
+  const slide = slideMs(tick);
 
   useLayoutEffect(() => {
     const el = boxRef.current;
@@ -229,6 +230,7 @@ function StreamCard({
             rows={rows}
             cursor={cursor}
             motion={motion}
+            slide={slide}
             renderRow={renderRow}
           />
         </div>
@@ -241,6 +243,7 @@ function StreamCard({
         note={note}
         cursor={cursor}
         motion={motion}
+        slide={slide}
         renderRow={renderRow}
         onClose={() => setExpanded(false)}
       />
@@ -266,6 +269,7 @@ function StreamSheet({
   note,
   cursor,
   motion,
+  slide,
   renderRow,
   onClose,
 }: {
@@ -275,6 +279,7 @@ function StreamSheet({
   note: string;
   cursor: number;
   motion: boolean;
+  slide: number;
   renderRow: (i: number) => ReactNode;
   onClose: () => void;
 }) {
@@ -366,6 +371,7 @@ function StreamSheet({
             rows={rows}
             cursor={cursor}
             motion={motion}
+            slide={slide}
             size={12}
             wrap
             renderRow={renderRow}
@@ -394,6 +400,7 @@ function Stream({
   rows,
   cursor,
   motion,
+  slide,
   size = 11,
   wrap = false,
   renderRow,
@@ -401,6 +408,8 @@ function Stream({
   rows: number;
   cursor: number;
   motion: boolean;
+  /** 顶一格滑多久。跟着这张卡的拍子来，见 `slideMs`。 */
+  slide: number;
   /** 字号：卡片上 11，展开后 12。行高不跟着变，两处对得上才不会跳。 */
   size?: number;
   /** 折行：一行读得全，代价是高矮不齐。卡片上不折，展开后折。 */
@@ -419,8 +428,8 @@ function Stream({
     /* 先摘掉再挂上，中间读一下布局 —— 不读这一下，浏览器不认为动画换过。 */
     el.style.animation = "none";
     void el.offsetWidth;
-    el.style.animation = `livo-log-rise ${SLIDE_MS}ms linear`;
-  }, [cursor, motion]);
+    el.style.animation = `livo-log-rise ${slide}ms linear`;
+  }, [cursor, motion, slide]);
 
   return (
     <div
