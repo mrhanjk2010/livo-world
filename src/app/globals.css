@@ -297,6 +297,24 @@ body {
 }
 
 /*
+ * 两个例外，都得躲开上面那条「一律退回行内」：
+ *
+ * 缩进那一格靠宽度撑开（因果卡里，果底下那几行小字要比果本身缩进一格），行内元
+ * 素吃不到宽度，得留成 inline-block。
+ *
+ * 胶囊（潜在 / 注定 / 兑现 / 呼应）退回行内后，里面那两个字会被当成普通文字折
+ * 开 —— 一个字留在行尾、一个掉到下一行。它是个整体，不许折。
+ */
+.livo-log-wrap .livo-log-row span.livo-log-indent {
+  display: inline-block;
+}
+
+.livo-log-wrap .livo-log-row span.livo-log-chip {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+/*
  * 命运光环旋涡：逆时针缓慢旋转（负角度）。
  * 外圈 / 中圈 / 雾层用不同时长叠在一起，更像涡旋。
  */

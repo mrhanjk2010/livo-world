@@ -12,7 +12,7 @@ import {
 import { createPortal } from "react-dom";
 import { usePhoneOverlayRoot } from "@/components/mobile/phone-frame";
 import { StatusBar } from "@/components/mobile/status-bar";
-import { CAUSE_LOG, type CauseState } from "@/lib/tilia/world-cause-log";
+import { CAUSE_STREAM } from "@/lib/tilia/world-cause-log";
 import { DESTINY_STREAM } from "@/lib/tilia/world-destiny-log";
 import {
   useWorldLogStream,
@@ -72,7 +72,7 @@ const ANIM_MS = 240;
  *
  *   世界一直在算      每一拍都在跑的账，快到只读得清一两个词
  *   命运一直在涌现    它给还没发生的戏写好的稿子：动机、发展、边界
- *   因果链一直在推演  落下的这些又互相咬成链，谁牵出了谁
+ *   因果链一直在推演  落下的这些又互相咬成链：伏笔、目标、因，最后咬出一个果
  *
  * 三张等高，因为它们是并列的三层，不是一主二次。三张一起看到的是「世界在转」这
  * 件事本身；要读清某一层，点开它，同一条流水占满整屏。
@@ -127,7 +127,7 @@ export function WorldStreamCards() {
       <StreamCard
         cmd="cause.trace"
         title="因果链一直在推演"
-        note="一条链从因走到果，末一节是果"
+        note="伏笔、目标、因、果 —— 果还得交代自己怎么来的"
         renderRow={(i) => <CauseRow i={i} />}
       />
     </div>
@@ -560,7 +560,7 @@ function DestinyRow({ i }: { i: number }) {
           {hhmm(row.at ?? 0)}
         </span>
         <span
-          className="shrink-0 rounded-[3px] px-[3px] py-[1px] text-[9px] leading-none"
+          className="livo-log-chip shrink-0 rounded-[3px] px-[3px] py-[1px] text-[9px] leading-none"
           style={{ color: hue, background: `${hue}24` }}
         >
           {row.label}
@@ -598,42 +598,92 @@ function DestinyRow({ i }: { i: number }) {
   );
 }
 
-/** 结论的四种口气，深浅从「成立」到「断了」一路暗下去。 */
-const CAUSE_TAG: Record<CauseState, { label: string; tone: string }> = {
-  done: { label: "成立", tone: INK.bright },
-  solve: { label: "推演", tone: INK.mid },
-  hold: { label: "差一件", tone: INK.soft },
-  drop: { label: "断了", tone: INK.faint },
-};
-
 /**
- * 因果链一直在推演：一条链从因走到果，末一节是果。
+ * 因果链一直在推演：伏笔、目标、因、果，穿插着滚过去。
  *
- * 箭头和星图上的线是同一支绿、同一件事，只是一个画出来、一个写出来。前面的因压
- * 暗、末一节提亮：一行字里也要看得出方向。
+ * 分行与字段见 `world-cause-log.ts`。这里只管一件事 —— 让眼睛先接住果。
+ *
+ * 果那一行提到最亮并带一点辉光，尾巴上挂着它和因怎么咬上的（兑现 / 呼应 / 因
+ * 果）；紧跟着缩进两行交代它凭什么成立（因 1、因 2……）和算到哪一步（状态）。伏
+ * 笔和目标压到最暗：它们是背景，不是此刻发生的事。一屏滚过去的节奏因此是「暗、
+ * 暗、亮一行、几行小字」—— 那一亮就是一次推演落地。
+ *
+ * 这张卡仍是那一支绿，主次全交给透明度；换色是中间那张卡分段用的手段。
  */
+const CAUSE_LABEL = {
+  seed: "伏笔",
+  goal: "目标",
+  cause: "因",
+  effect: "果",
+} as const;
+
 function CauseRow({ i }: { i: number }) {
-  const line = pick(CAUSE_LOG, i);
-  const tag = CAUSE_TAG[line.state];
-  const last = line.chain.length - 1;
+  const row = pick(CAUSE_STREAM, i);
+
+  if (row.kind === "effect") {
+    return (
+      <>
+        <span
+          className="shrink-0"
+          style={{ color: INK.bright, textShadow: `0 0 9px ${GREEN}4d` }}
+        >
+          【{CAUSE_LABEL.effect}】
+        </span>
+        <span
+          className="truncate"
+          style={{ color: INK.bright, textShadow: `0 0 9px ${GREEN}40` }}
+        >
+          {row.text}
+        </span>
+        <span
+          className="livo-log-chip ml-auto shrink-0 rounded-[3px] px-[3px] py-[1px] text-[9px] leading-none"
+          style={{ color: INK.strong, background: `${GREEN}24` }}
+        >
+          {row.relation}
+        </span>
+      </>
+    );
+  }
+
+  if (row.kind === "from") {
+    return (
+      <>
+        {/* 缩进那一格是给眼睛的：这几行是上面那个果的交代，不是新起一件事 */}
+        <span className="livo-log-indent w-[12px] shrink-0" aria-hidden />
+        <span className="shrink-0 tabular-nums" style={{ color: INK.soft }}>
+          因{row.index}
+        </span>
+        <span className="truncate" style={{ color: INK.mid }}>
+          {row.text}
+        </span>
+      </>
+    );
+  }
+
+  if (row.kind === "state") {
+    return (
+      <>
+        <span className="livo-log-indent w-[12px] shrink-0" aria-hidden />
+        <span className="shrink-0" style={{ color: INK.soft }}>
+          状态
+        </span>
+        <span className="truncate" style={{ color: INK.strong }}>
+          {row.text}
+        </span>
+      </>
+    );
+  }
+
+  /* 伏笔和目标是背景，压得比因还暗一档。 */
+  const tone = row.kind === "cause" ? INK.mid : INK.soft;
 
   return (
     <>
-      <span className="flex min-w-0 flex-1 items-center gap-[4px] truncate">
-        {line.chain.map((term, k) => (
-          <span key={`${term}-${k}`} className="flex items-center gap-[4px]">
-            {k > 0 ? <span style={{ color: INK.soft }}>▸</span> : null}
-            <span style={{ color: k === last ? INK.bright : INK.mid }}>
-              {term}
-            </span>
-          </span>
-        ))}
+      <span className="shrink-0" style={{ color: tone }}>
+        【{CAUSE_LABEL[row.kind]}】
       </span>
-      <span className="shrink-0" style={{ color: tag.tone }}>
-        {tag.label}
-      </span>
-      <span className="shrink-0 tabular-nums" style={{ color: INK.faint }}>
-        {line.score.toFixed(2)}
+      <span className="truncate" style={{ color: tone }}>
+        {row.text}
       </span>
     </>
   );
