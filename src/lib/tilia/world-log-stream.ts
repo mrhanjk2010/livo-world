@@ -26,7 +26,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { WorldLogRow } from "@/lib/tilia/world-log-line";
-import { nextTickMs } from "@/lib/tilia/world-stream-tick";
+import { nextTickMs, type TickRange } from "@/lib/tilia/world-stream-tick";
 
 export type { WorldLogRow };
 
@@ -40,8 +40,8 @@ export const WORLD_LOG_WORLD =
  * 手里最多攒多少行。
  *
  * 这个数不是「显示得下多少」，是「够滚多久」：卡上一次看得见五六行，但队列一
- * 拍只放一行（平均三秒），所以攒下的行数直接决定真数据能滚多长时间 —— 攒满这
- * 800 行能放上半个多钟头。
+ * 拍只放一行（平均 0.6 秒），所以攒下的行数直接决定真数据能连着滚多长时间 ——
+ * 攒满这 800 行能放上七八分钟，之后就跟着后端的产出走走停停。
  *
  * 一上来 backfill 会灌几百行，这个数太小的话，多出来的那些还没轮到显示就被挤
  * 掉了，于是刚打开这一屏没多久就没有真的可放。留够装下整段 backfill。
@@ -137,11 +137,12 @@ export function useWorldLogStream(): WorldLogFeed {
  * backfill 灌几百行，然后可能一分钟里一行都没有（那条流上只剩每秒一个 ping）。
  * 收到就显示的话，几百行会在一瞬间刷完，然后卡在那儿不动，看着像是坏了。
  *
- * 排队之后，这张卡的快慢就跟后端的真实产出对齐了：慢，但每一行都是真的。拍子
- * 是随机的 1–5 秒（和另外两张卡共用一副骰子，见 `world-stream-tick.ts`），平均
- * 三秒一行 —— 攒下的几百行历史够滚上小半个钟头，中途新吐的接在后面。队里真空了
- * 才停 —— 那时候是真的没有东西可算，表头那颗灯会自己喘起来，说明它在等，不是死
- * 了。
+ * 排队之后，滚的每一行都是真的，快慢却可以自己定：这张卡走机器那一档（0.2–1
+ * 秒，见 `world-stream-tick.ts`），比后端吐得快 —— 于是一上来那几百行 backfill
+ * 会连着快滚七八分钟，把攒下的历史一行行放完，之后就跟着世界的真实产出走走停停。
+ *
+ * 停下来的那一会儿卡片是不动的，不是空着：队里没有真的可放就不往前走，表头那颗灯
+ * 改成喘气 —— 它在等世界开口，不是死了。这是有意的选择：宁可停一下，也不掺假行。
  */
 export type WorldLogTimeline = {
   /** 一拍一格。 */
@@ -160,8 +161,8 @@ const TIMELINE_KEEP = 120;
 /**
  * 头一拍先铺满一屏。
  *
- * 一秒不到就跳过去的东西可以一行行长出来，几秒一行不行 —— 那样得对着一张空卡
- * 等上一两分钟。先把这一屏铺上，再一行行往下走。
+ * 一行行长出来要等：这一屏五六行、展开后二十几行，就算按最快那一档也得盯着一张
+ * 半空的卡等上十几秒。先把这一屏铺上，再一行行往下走。
  */
 const SEED = 48;
 
@@ -172,7 +173,10 @@ const NO_TIMELINE: WorldLogTimeline = {
   flowing: false,
 };
 
-export function useWorldLogTimeline(feed: WorldLogFeed): WorldLogTimeline {
+export function useWorldLogTimeline(
+  feed: WorldLogFeed,
+  tick: TickRange,
+): WorldLogTimeline {
   const [line, setLine] = useState<WorldLogTimeline>(NO_TIMELINE);
   /* 拍子由定时器打，读的是最新的 feed —— 所以用 ref，别让 feed 一变就重开表。 */
   const latest = useRef(feed);
@@ -219,12 +223,12 @@ export function useWorldLogTimeline(feed: WorldLogFeed): WorldLogTimeline {
       t = window.setTimeout(() => {
         step();
         beat();
-      }, nextTickMs());
+      }, nextTickMs(tick));
     };
     beat();
 
     return () => window.clearTimeout(t);
-  }, [feed.live]);
+  }, [feed.live, tick]);
 
   return line;
 }

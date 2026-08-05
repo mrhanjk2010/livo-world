@@ -24,7 +24,13 @@ import {
   type WorldLogRow,
 } from "@/lib/tilia/world-log-stream";
 import { WORLD_LOG_RECORDING } from "@/lib/tilia/world-log-recording";
-import { nextTickMs, SLIDE_MS } from "@/lib/tilia/world-stream-tick";
+import {
+  CALC_TICK,
+  nextTickMs,
+  READ_TICK,
+  SLIDE_MS,
+  type TickRange,
+} from "@/lib/tilia/world-stream-tick";
 
 /** 一行的高度，和字号的 leading 对齐。 */
 const LINE_H = 18;
@@ -75,8 +81,9 @@ const ANIM_MS = 240;
  * 三张等高、同一支绿，因为它们是并列的三层，不是一主二次。三张一起看到的是
  * 「世界在转」这件事本身；要读清某一层，点开它，同一条流水占满整屏。
  *
- * 三张的拍子都是随机的 1–5 秒，各摇各的骰子（见 `world-stream-tick.ts`）——
- * 整屏看过去此起彼伏，而不是三行一起跳。
+ * 拍子都是随机的、各摇各的骰子，但快慢分两档（见 `world-stream-tick.ts`）：算的
+ * 那张 0.2–1 秒，快到只读得清一两个词；命运和因果那两张 1–5 秒，慢到每行读得
+ * 完。快慢本身就在说它们各自是什么东西。
  */
 export function WorldStreamCards() {
   /*
@@ -85,7 +92,7 @@ export function WorldStreamCards() {
    * 一段。两头都是真话，差别只在一个是「正在」、一个是「曾经」。
    */
   const feed = useWorldLogStream();
-  const line = useWorldLogTimeline(feed);
+  const line = useWorldLogTimeline(feed, CALC_TICK);
 
   return (
     <div className="absolute bottom-[20px] left-1/2 top-[104px] z-[8] flex w-[340px] -translate-x-1/2 flex-col gap-[10px]">
@@ -94,9 +101,10 @@ export function WorldStreamCards() {
         title="世界一直在算"
         note={
           line.live
-            ? "接的是此刻那条流；后端吐得慢，这张卡就跟着它慢下来"
+            ? "接的是此刻那条流；攒下的先快放，放完就跟着世界的速度走走停停"
             : "录下来的一段真日志 —— 这一节车厢外面连不上世界的机房"
         }
+        tick={CALC_TICK}
         live={line.live}
         waiting={line.live && !line.flowing}
         /* 接上流的时候拍子由那条队打，卡片跟着它走，别自己再打一份。 */
@@ -149,6 +157,7 @@ function StreamCard({
   cmd,
   title,
   note,
+  tick = READ_TICK,
   live = false,
   waiting = false,
   cursor: cursorFromFeed,
@@ -159,6 +168,8 @@ function StreamCard({
   title: string;
   /** 展开后副标题里那半句：这一条流水到底在说什么。 */
   note: string;
+  /** 这张卡多快落一行。默认是读得完的那一档。 */
+  tick?: TickRange;
   /** 滚的是真的账 —— 表头点一颗灯。 */
   live?: boolean;
   /** 真的都放完了，在等世界开口 —— 那颗灯改成喘气，别让人以为是死了。 */
@@ -168,7 +179,7 @@ function StreamCard({
   renderRow: (i: number) => ReactNode;
 }) {
   const motion = useMotion();
-  const own = useStreamCursor(cursorFromFeed === undefined);
+  const own = useStreamCursor(cursorFromFeed === undefined, tick);
   const cursor = cursorFromFeed ?? own;
   const [expanded, setExpanded] = useState(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -457,7 +468,7 @@ function useMotion(): boolean {
  * 用一串 timeout 而不是 setInterval —— 每一拍的间隔都要重摇（见
  * `world-stream-tick.ts`）。真数据那张卡的拍子在外面打，这里就不走表。
  */
-function useStreamCursor(enabled: boolean): number {
+function useStreamCursor(enabled: boolean, tick: TickRange): number {
   const [cursor, setCursor] = useState(CURSOR_START);
 
   useEffect(() => {
@@ -467,11 +478,11 @@ function useStreamCursor(enabled: boolean): number {
       t = window.setTimeout(() => {
         setCursor((n) => n + 1);
         beat();
-      }, nextTickMs());
+      }, nextTickMs(tick));
     };
     beat();
     return () => window.clearTimeout(t);
-  }, [enabled]);
+  }, [enabled, tick]);
 
   return cursor;
 }
