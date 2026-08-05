@@ -13,11 +13,7 @@ import { createPortal } from "react-dom";
 import { usePhoneOverlayRoot } from "@/components/mobile/phone-frame";
 import { StatusBar } from "@/components/mobile/status-bar";
 import { CAUSE_LOG, type CauseState } from "@/lib/tilia/world-cause-log";
-import {
-  DESTINY_CLOCK_START,
-  DESTINY_LOG,
-  type DestinyState,
-} from "@/lib/tilia/world-destiny-log";
+import { DESTINY_STREAM } from "@/lib/tilia/world-destiny-log";
 import {
   useWorldLogStream,
   useWorldLogTimeline,
@@ -75,11 +71,14 @@ const ANIM_MS = 240;
  * 底噪，正面交给三张卡，从上往下是同一件事的三层 ——
  *
  *   世界一直在算      每一拍都在跑的账，快到只读得清一两个词
- *   命运一直在涌现    算出来的东西一枚枚落地，你不在场也照样落
+ *   命运一直在涌现    它给还没发生的戏写好的稿子：动机、发展、边界
  *   因果链一直在推演  落下的这些又互相咬成链，谁牵出了谁
  *
- * 三张等高、同一支绿，因为它们是并列的三层，不是一主二次。三张一起看到的是
- * 「世界在转」这件事本身；要读清某一层，点开它，同一条流水占满整屏。
+ * 三张等高，因为它们是并列的三层，不是一主二次。三张一起看到的是「世界在转」这
+ * 件事本身；要读清某一层，点开它，同一条流水占满整屏。
+ *
+ * 颜色上第一、三张走同一支绿，中间那张一枚命运一个颜色 —— 那张卡上一段接一段
+ * 都是成篇的稿子，得靠换色才看得出接缝在哪儿（见 `DestinyRow`）。
  *
  * 拍子都是随机的、各摇各的骰子，但快慢分两档（见 `world-stream-tick.ts`）：算的
  * 那张 0.1–0.5 秒，快到只读得清一两个词；命运和因果那两张 1–5 秒，慢到每行读得
@@ -122,7 +121,7 @@ export function WorldStreamCards() {
       <StreamCard
         cmd="destiny.watch"
         title="命运一直在涌现"
-        note="起、酝、定、散 —— 你不在场也照样落"
+        note="一枚命运摊开是三段：行为动机、剧情发展、行为边界"
         renderRow={(i) => <DestinyRow i={i} />}
       />
       <StreamCard
@@ -539,52 +538,61 @@ function CalcRow({ row }: { row?: WorldLogRow }) {
   );
 }
 
-/** 四种动静各自的写法。 */
-const DESTINY_TAG: Record<DestinyState, string> = {
-  spawn: "起",
-  brew: "酝",
-  lock: "定",
-  fade: "散",
-};
-
 /**
- * 命运一直在涌现：时刻 + 动静 + 车厢 + 短名 + 说人话。
+ * 命运一直在涌现：世界给一场还没发生的戏写的稿子。
  *
- * 原先冷暖跟着命运本身走（潜在的蓝、注定的粉橙），现在同一支绿，深浅接着说同
- * 一件事：注定的最亮、潜在的次之、散掉的退到最暗 —— 一眼扫过去仍然读得出「这
- * 些正在长、那几件已经没下文了」，只是不再靠色相。
+ * 一枚命运摊开是三段 —— 行为动机、剧情发展、行为边界 —— 一行一行滚过去（数据与
+ * 分行见 `world-destiny-log.ts`）。这一张卡因此比另外两张密：它是稿子，不是账。
  *
- * 时刻每行往前挪两三分钟：单调、但不匀速。
+ * 这里是整屏唯一不走那一支绿的地方：每一枚命运一个颜色，主导者是谁就用谁的色。
+ * 稿子一段接一段滚，中间没有分隔线也没有空行 —— 光靠透明度分不出「这一段结束
+ * 了、换了一枚」，颜色一换才看得见接缝。段内的主次仍旧交给透明度：标签最亮，正
+ * 文次之，时刻最淡。
  */
 function DestinyRow({ i }: { i: number }) {
-  const line = pick(DESTINY_LOG, i);
-  const tone =
-    line.state === "fade"
-      ? INK.faint
-      : line.kind === "destined"
-        ? INK.bright
-        : INK.mid;
-  const at = DESTINY_CLOCK_START + i * 3 - (i % 4);
+  const row = pick(DESTINY_STREAM, i);
+  const hue = row.hue;
+
+  if (row.kind === "head") {
+    return (
+      <>
+        <span className="shrink-0 tabular-nums" style={{ color: `${hue}80` }}>
+          {hhmm(row.at ?? 0)}
+        </span>
+        <span
+          className="shrink-0 rounded-[3px] px-[3px] py-[1px] text-[9px] leading-none"
+          style={{ color: hue, background: `${hue}24` }}
+        >
+          {row.label}
+        </span>
+        <span className="truncate" style={{ color: hue }}>
+          {row.text}
+        </span>
+      </>
+    );
+  }
+
+  if (row.kind === "field") {
+    return (
+      <>
+        {/* 段名不许压：一行里先读得出这是动机、发展还是边界 */}
+        <span className="shrink-0" style={{ color: hue }}>
+          【{row.label}】
+        </span>
+        <span className="truncate" style={{ color: `${hue}c4` }}>
+          {row.text}
+        </span>
+      </>
+    );
+  }
 
   return (
     <>
-      <span style={{ color: INK.soft }}>{hhmm(at)}</span>
-      <span
-        className="shrink-0 rounded-[3px] px-[3px] py-[1px] text-[9px] leading-none"
-        style={{ color: tone, background: `${GREEN}1f` }}
-      >
-        {DESTINY_TAG[line.state]}
-        {line.at === undefined ? "" : ` ${Math.round(line.at * 100)}%`}
+      <span className="shrink-0" style={{ color: `${hue}73` }}>
+        ·
       </span>
-      <span className="shrink-0" style={{ color: INK.soft }}>
-        {line.room}
-      </span>
-      {/* 短名不许压：一行里先读得出「这是哪一枚命运」，说人话那半句截了无妨 */}
-      <span className="shrink-0" style={{ color: tone }}>
-        {line.title}
-      </span>
-      <span className="truncate" style={{ color: INK.mid }}>
-        · {line.note}
+      <span className="truncate" style={{ color: `${hue}a8` }}>
+        {row.text}
       </span>
     </>
   );

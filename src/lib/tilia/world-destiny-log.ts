@@ -1,283 +1,258 @@
 /**
  * 命运涌现流 —— 「世界背面」中间那张卡里滚过去的那些行。
  *
- * 和上面那张（`world-log-recording.ts`）的分工：那张说世界在算，这张说算出来的东西
- * 正一枚枚落地。命运不是等你走到某个房间才生成的，它一直在别处发生 —— 你没在
- * 场的时候，灯照样亮、名单照样重排、有人照样把手套摘了。这张卡就是那些「你不
- * 在场的命运」的账。
+ * 和上面那张（真的世界日志）的分工：那张说世界在算，这张说算出来的东西长什么
+ * 样。命运不是等你走到某个房间才生成的，它一直在别处被写着 —— 你没在场的时候，
+ * 世界也在给一场还没发生的饭局定好谁主导、他为什么这么做、哪些事不许发生。
  *
- * 一行四截：
+ * 一枚命运摊开来是三段：
  *
- *   state  起 / 酝 / 定 / 散 —— 一枚命运的四种动静
- *   room   落在哪节车厢，写成 id 的样子（给机器看的那半截）
- *   title  命运的短名，和地图胶囊上那个一致
- *   note   说人话的那半句
+ *   行为动机  这一段由谁主导，他为什么这么做，以及他绝不会露的那一手
+ *   剧情发展  这一段会怎么走 —— 他问什么，你怎么答，答不同则走向不同
+ *   行为边界  不许发生的事。世界得先划清这个，才敢把场子交给人去演
  *
- * 内容手写，不是拼的：拼出来的行读两遍就露馅，而这张卡会一直滚。名字和地点都
- * 咬着 `destiny-archive.ts` 与 `echo-archive.ts` 里那些真事 —— 同一个世界的两
- * 种看法，不是两个世界。
+ * 这三段不是给玩家看的说明书，是世界写给自己的稿子 —— 你在正面看到的对话，是它
+ * 照着这份稿子演出来的。把背面翻过来看见它，才明白那些「刚好」的巧合是算出来
+ * 的。所以这张卡的字比另外两张密：它是稿子，不是账。
+ *
+ * 每一枚命运一个颜色（`hue`），一段一段地滚过去，颜色换了就是换了一枚。主导者
+ * 是谁就用谁的色（和「人物与世界观」里那套 accent 同源，只为在黑底上提亮了）；
+ * 世界自己走的规程用绿，车头那节用青。
+ *
+ * 内容手写，不是拼的：拼出来的行读两遍就露馅，而这张卡会一直滚。人、地点、动机
+ * 都咬着 `cast.ts` 的人设与 `one-week-later.ts`、`cab-carriage.ts`、
+ * `music-hall-concert.ts` 里那几场真戏 —— 同一个世界的两种看法，不是两个世界。
  */
 
-/** 一枚命运此刻的动静。 */
-export type DestinyState =
-  /** 起：世界刚把它摆上来。 */
-  | "spawn"
-  /** 酝：还在长，带一个进度。 */
-  | "brew"
-  /** 定：条件齐了，它一定会发生。 */
-  | "lock"
-  /** 散：窗口过去了，这一枚不会再有下文。 */
-  | "fade";
+/** 这一段命运的三个字段。 */
+export type DestinyFieldKind = "motive" | "plot" | "bounds";
 
-export type DestinyLine = {
-  state: DestinyState;
-  /** 潜在还是注定 —— 决定这一行的冷暖。`fade` 两种都退成灰。 */
-  kind: "potential" | "destined";
+/** 一枚正在涌现的命运 —— 世界给它写好的那份稿子。 */
+export type DestinyEmergence = {
+  id: string;
   /** 车厢 id，照 `train.ts` 那套写法。 */
   room: string;
+  /** 车厢的人话名，落在这一段的头一行。 */
+  roomName: string;
+  /** 命运短名，和地图胶囊上那个一致。 */
   title: string;
-  note: string;
-  /** 只有 `brew` 有：酝酿到了几分（0–1）。 */
-  at?: number;
+  kind: "potential" | "destined";
+  /** 这一段的颜色。换色就是换了一枚命运。 */
+  hue: string;
+  /** 起这一段的时刻（当天的分钟数）。 */
+  at: number;
+  /** 行为动机：主导者为什么这么做，以及他不会做什么。 */
+  motive: readonly string[];
+  /** 剧情发展：头一句是总纲，后面几条是分支。 */
+  plot: readonly string[];
+  /** 行为边界：不许发生的事。 */
+  bounds: readonly string[];
 };
 
-/** 每行前面那个时刻的起点（当天的分钟数）。 */
-export const DESTINY_CLOCK_START = 6 * 60 + 18;
+/** 黑底上提亮过的那几支色，来源是 `cast.ts` 里各人的 accent。 */
+const HUE = {
+  /** 罗兰：艳俗小说家的紫。 */
+  roland: "#b57ad8",
+  /** 施塔恩：维萨军官的蓝。 */
+  staen: "#6cb4f0",
+  /** 散庭·姚：断臂青梅的金。 */
+  santing: "#e8bd63",
+  /** 任轻义：万晁商贾的朱。 */
+  renqingyi: "#ff7d63",
+  /** 世界自己走的规程：和这一屏同一支绿。 */
+  world: "#3bff8f",
+  /** 车头那节：炉火与黄铜之外，只剩仪表的青。 */
+  cab: "#4de3d0",
+} as const;
 
-export const DESTINY_LOG: readonly DestinyLine[] = [
+export const DESTINY_EMERGENCES: readonly DestinyEmergence[] = [
   {
-    state: "spawn",
-    kind: "potential",
-    room: "music-hall",
-    title: "夜场余音",
-    note: "灯在第二晚亮了",
-  },
-  {
-    state: "brew",
-    kind: "potential",
-    room: "tea-room",
-    title: "小提琴",
-    note: "弓松了半圈，是给人用的松法",
-    at: 0.68,
-  },
-  {
-    state: "lock",
-    kind: "potential",
+    id: "dining-roland-dinner",
     room: "dining",
+    roomName: "餐车",
+    title: "同桌一餐",
+    kind: "potential",
+    hue: HUE.roland,
+    at: 19 * 60 + 40,
+    motive: [
+      "你答应了和罗兰同桌，这说明你们的关系已经从陌生人往前挪了一格。他会借这个势头初步摸清你的动向，但无论如何都不会露出真正的目的——探听 XK-101 的下落。",
+      "他此刻的人设是一个忧郁、温柔、敏锐的艳俗小说家，和你只是刚认识的普通朋友，绝不会问冒犯或敏感的问题。所有言行都得守着这个伪装出来的形象。",
+    ],
+    plot: [
+      "这一段由罗兰主导。他问的都是日常、不冒犯的问题——你要去哪儿、爱吃什么；你也会反问或延伸，摸清他的底细。",
+      "他问你的终点是哪儿，试的是你的防备心。你答得保守，他就退一步：「抱歉，我只是想着也许我们旅途一致，可以路上做伴，并没有恶意。」",
+      "你若答万晁，他会接着说：「真是遥远而美好的故土，战争刚结束，你一定很久不曾回去了。」",
+      "他拿自己的小说作引子试你的情感经历——你那么快认出他，是读过他的书？你说读过，他会很高兴地说和读者聊剧情最容易迸出灵感，然后补一句前提：「如果你不介意我写的是情色小说的话。」",
+      "你说没读过，他也不纠缠，自然地转去问你爱看什么、平时喜欢什么。",
+      "关于他本人的大尺度话题，他一概不直接接，全都绕回文学上去。",
+      "他问你吃食上的偏好。若你说了要回万晁，他会说菜单上似乎没有万晁的东西，再顺着问你最想念哪一道、有什么渊源——他要的不是菜名，是你从那些渊源里漏出来的人际、处事和心思。",
+      "他问「一个人吗?」。你说是，他就表示担忧：「虽然战争已经结束了，但独行的女士还是极少见的。」明面上担心你的安危，实则想把你父亲引出来。",
+      "你若露出防备，他会无辜地表明自己无害，再顺手夸你一句：「我只是想说，世界仍在动荡，女士孤身在外保持警惕，无比智慧。」",
+      "四个话题问完，你不接新的就散场；你若接了，二十轮后侍者会来说餐车要打烊了，请二位早些回去歇息。",
+    ],
+    bounds: [
+      "不许用任何方式把时间和地点强行挪走——「一夜过后」、「一年后」、「我被罗兰抱着离开了餐车」这类，一概不成立。这一段严格锁在餐车里。",
+      "罗兰不许对你做出主动的亲密举动。",
+      "你若用言语挑逗他，他会顺着答，但点到即止，并把这层来往美化成文学上的探讨。一切只走语言，行为上的亲密禁止。",
+      "他绝不会直接问 XK-101，那不符合一个艳俗小说家的人设。你的回复选项里也不该出现这五个字。",
+    ],
+  },
+  {
+    id: "tea-room-violin",
+    room: "tea-room",
+    roomName: "茶室",
+    title: "矮柜旁的琴",
+    kind: "potential",
+    hue: HUE.staen,
+    at: 21 * 60 + 6,
+    motive: [
+      "琴是施塔恩从音乐厅挪过来的。他不说是自己放的，也不问你要不要——他要的是你自己走过去、自己伸手，这样这把琴才算你的东西，而不是他给的。",
+      "他此刻是维萨负责护送这趟车的中将，对你多加照拂是职责也是私心。但他肩上还压着一条只有他知道的最高指令，所以他不会解释自己为什么留意一只刚好够装点东西的琴盒。",
+    ],
+    plot: [
+      "这一段由施塔恩主导，但他几乎不主动开口——他先把弓也一并收进你够得到的距离，等你先动。",
+      "你若问琴是谁的，他答得含糊：琴一直在车上，只是从前没人会拉。",
+      "你若接过琴，他会说弦得重新调，然后在暖灯下看着你调——这一刻他不看琴，看你的手。",
+      "你若提起父亲，他会沉默一拍再换话题：这一段里他不接任何和万晁科学家有关的话。",
+      "琴盒的重量落到你手里，这一段就算成了。世界会记下：你多了一件可以装东西的硬壳行李。",
+    ],
+    bounds: [
+      "施塔恩不许说出那条指令，也不许暗示琴盒的容积。",
+      "琴只能在茶室交接。你不许把它带出这一段再回头改口说没接。",
+      "不许让施塔恩替你把东西藏进琴里——那是你自己的选择，得由你自己在别的场里做。",
+    ],
+  },
+  {
+    id: "dining-patrol",
+    room: "dining",
+    roomName: "餐车",
     title: "巡警检查",
-    note: "第十日进安检区段",
+    kind: "potential",
+    hue: HUE.world,
+    at: 6 * 60 + 18,
+    motive: [
+      "这一段没有人主导，是规程在走：第十日清晨进例行安检区段，餐车长桌推到一侧，临时立起检查牌。",
+      "巡警要的是名册上每一件随身物都开过一次。他对你没有兴趣，也不知道 XK-101 —— 但他会照着单子把琴盒打开。",
+    ],
+    plot: [
+      "由巡警推进。他按名册一个个点，点到你时要求开箱，任轻义与施塔恩在场。",
+      "琴马下方那寸空隙已经塞了管壳。你若稳住呼吸不解释，巡警只会敲一敲琴腹听声，然后放行。",
+      "你若抢先说明，反而会让他多翻一遍——这一段会难走，但不会立刻败。",
+      "任轻义会在关键一刻把话头引到关税单据上，替你把巡警的注意力挪开半分钟。他不会说自己是故意的。",
+      "检查散场后你会明白：琴挡得住这一次，挡不住第二次开箱。这句明白，是下一枚命运的因。",
+    ],
+    bounds: [
+      "巡警不许识破管壳。这一段的结果是过关，不是被抓——但也不许写成他放水。",
+      "不许在餐车里动手。这一段全程只有对话、开箱和签字。",
+      "不许让施塔恩替你担保。他此刻在场只作看，任何一句偏袒都会让他后面那条指令失效。",
+    ],
   },
   {
-    state: "spawn",
-    kind: "potential",
-    room: "cab-driver",
-    title: "藏进车头",
-    note: "锁了十天的折棚门开了",
-  },
-  {
-    state: "fade",
-    kind: "potential",
+    id: "promenade-santing",
     room: "promenade",
-    title: "雪线合影",
-    note: "隘口过完了，谁也没举相机",
-  },
-  {
-    state: "brew",
+    roomName: "观景廊",
+    title: "廊道风声",
     kind: "potential",
-    room: "promenade",
-    title: "那半段曲子",
-    note: "后半段留给活着回去的人",
-    at: 0.41,
+    hue: HUE.santing,
+    at: 7 * 60 + 2,
+    motive: [
+      "散庭·姚是看到你第一眼就知道你身上带着药剂的人。他的任务是把它拿回去，可他约你到窗缝灌雪的廊道，说的却是安检名单上多了一行不该有的字。",
+      "他要你先怕，再让你觉得只有他能护你。这不是算计出来的步骤，是他控制不住的顺序——他自卑、多疑，也确实想你活着。",
+    ],
+    plot: [
+      "由散庭·姚主导。他先说名单，再说自己那条只剩一半的手臂，两件事在他嘴里是同一件事。",
+      "你若追问名单是谁改的，他不答，只说「知道了也没用」——他确实不知道，但更不愿在你面前显得无用。",
+      "你若提到施塔恩，他的语气会立刻变冷，问你为什么总在看着他。这一支会把这一段拖长，但不会拖崩。",
+      "你若让他替你保管东西，他会答应得太快——这一支要留一个尾巴：他没说要保管到什么时候。",
+      "他最后会给你系一条属于他的丝巾。系上，这一段就成了。",
+    ],
+    bounds: [
+      "他不许直接索要 XK-101。这一段里他连药剂两个字都不提。",
+      "不许让他动手夺——真到那一步是另一枚命运的事，不在这条廊道上。",
+      "喜怒无常有上限：他可以冷、可以逼近，但永远在最后一刻停下。",
+    ],
   },
   {
-    state: "lock",
-    kind: "destined",
-    room: "crew",
-    title: "护送名单",
-    note: "排到第三遍才对上",
-  },
-  {
-    state: "spawn",
+    id: "cab-conductor",
+    room: "cab",
+    roomName: "驾驶室",
+    title: "车头风声",
     kind: "potential",
-    room: "crew",
-    title: "换上来的那个人",
-    note: "后半夜那班换了人",
-  },
-  {
-    state: "brew",
-    kind: "potential",
-    room: "study",
-    title: "旧车票",
-    note: "起点站磨得只剩半个字",
-    at: 0.55,
-  },
-  {
-    state: "spawn",
-    kind: "potential",
-    room: "promenade",
-    title: "窗霜上的字",
-    note: "写完又用袖口按住了",
-  },
-  {
-    state: "brew",
-    kind: "potential",
-    room: "cafe",
-    title: "那条丝巾",
-    note: "第三遍才算系正",
-    at: 0.74,
-  },
-  {
-    state: "lock",
-    kind: "destined",
-    room: "billiard",
-    title: "牌桌的赌注",
-    note: "记分牌上留了个不在车上的名字",
-  },
-  {
-    state: "spawn",
-    kind: "destined",
-    room: "billiard",
-    title: "摘手套的那一杆",
-    note: "皮头连滑三次之后",
-  },
-  {
-    state: "brew",
-    kind: "potential",
-    room: "theater",
-    title: "小说家",
-    note: "那一页折了两折",
-    at: 0.63,
-  },
-  {
-    state: "fade",
-    kind: "potential",
-    room: "greenhouse",
-    title: "花开那一夜",
-    note: "花提前开了，没人在场",
-  },
-  {
-    state: "spawn",
-    kind: "potential",
-    room: "tea-room",
-    title: "空着的那只杯",
-    note: "茶炉边多备了一只",
-  },
-  {
-    state: "brew",
-    kind: "potential",
-    room: "crew",
-    title: "认领那只箱子",
-    note: "行李架上放了三天没人认",
-    at: 0.37,
-  },
-  {
-    state: "lock",
-    kind: "potential",
-    room: "parlour",
-    title: "夜话的座次",
-    note: "今晚谁坐窗那边定了",
-  },
-  {
-    state: "spawn",
-    kind: "potential",
-    room: "cab-driver",
-    title: "整夜添煤的人",
-    note: "他没离开过炉边",
-  },
-  {
-    state: "brew",
-    kind: "potential",
-    room: "crew",
-    title: "划掉的那一行",
-    note: "名单上被划了两遍",
-    at: 0.46,
-  },
-  {
-    state: "fade",
-    kind: "potential",
-    room: "promenade",
-    title: "无名站的七分钟",
-    note: "停够了，谁也没下车",
-  },
-  {
-    state: "spawn",
-    kind: "destined",
-    room: "billiard",
-    title: "一诺千金",
-    note: "那四个字落得很轻",
-  },
-  {
-    state: "brew",
-    kind: "potential",
-    room: "theater",
-    title: "左胸口那一下",
-    note: "他按住，又笑了笑",
-    at: 0.7,
-  },
-  {
-    state: "lock",
-    kind: "destined",
-    room: "cafe",
-    title: "单臂系鞋带",
-    note: "系完才起身，没让你谢",
-  },
-  {
-    state: "spawn",
-    kind: "potential",
-    room: "promenade",
-    title: "口琴的铜面",
-    note: "漆磨掉了一块",
-  },
-  {
-    state: "brew",
-    kind: "potential",
-    room: "cafe",
-    title: "今年的杏子",
-    note: "熟了，谁也不提旧事",
-    at: 0.55,
-  },
-  {
-    state: "fade",
-    kind: "potential",
-    room: "berth-b",
-    title: "那盏没关的灯",
-    note: "天光之前它自己灭了",
-  },
-  {
-    state: "spawn",
-    kind: "potential",
-    room: "dining",
-    title: "连接处站着的人",
-    note: "他一夜没走",
-  },
-  {
-    state: "brew",
-    kind: "potential",
-    room: "study",
-    title: "递过来的那一页",
-    note: "你读完了，还没答他",
-    at: 0.68,
-  },
-  {
-    state: "lock",
-    kind: "destined",
-    room: "berth-a",
-    title: "隘口那一晚",
-    note: "风声压过了轮轨声",
-  },
-  {
-    state: "spawn",
-    kind: "potential",
-    room: "greenhouse",
-    title: "半夜响的那声",
-    note: "暖气管响过之后没人去看",
-  },
-  {
-    state: "brew",
-    kind: "potential",
-    room: "music-hall",
-    title: "留了一指宽的缝",
-    note: "琴盖没合严，不是谁忘了",
-    at: 0.45,
+    hue: HUE.cab,
+    at: 8 * 60 + 24,
+    motive: [
+      "你在餐车散场后问起了车头，任轻义答应替你递话。这一段能成立，是因为那句话真的被递到了——列车长让人开了锁着十天的折棚门。",
+      "列车长要看看是谁在打听他的车厢。他守着这趟车的运行图，对乘客没有好恶，但对「有人想往前走一节」这件事天生警觉。",
+    ],
+    plot: [
+      "由列车长主导。他先不问你为什么来，只让你看前窗——一整面被风雪正面撞着的玻璃。",
+      "他问你为什么会站在这儿。你说得含糊，他就自己接下去：这节车厢从不带乘客进来，今天开门是因为有人替你说了话。",
+      "你若问起折棚门后面还有什么，他会说没有了，前面只有铁轨——这句是真的。",
+      "你若提到藏东西，他会停下手上的活儿看你一眼，然后把话岔到炉火上去。世界会记下你提过，但这一段不给你结果。",
+      "门在你身后合上时，这一段结束。你多了一节可以再来的车厢，也多了一个记住你脸的人。",
+    ],
+    bounds: [
+      "不许在驾驶室里完成藏匿。这一段只开门、只认脸。",
+      "列车长不许被说服停车、改道或让你碰任何手柄。",
+      "不许让施塔恩或巡警出现在这一段里——门是为你一个人开的半扇。",
+    ],
   },
 ];
+
+/* ─────────────────────────── 摊平成一行行 ─────────────────────────── */
+
+export type DestinyRowKind =
+  /** 一枚命运的头一行：时刻、潜在还是注定、落在哪儿、叫什么。 */
+  | "head"
+  /** 三段之一的头一句，前面挂着【行为动机】这样的标签。 */
+  | "field"
+  /** 段里的一条。 */
+  | "item";
+
+export type DestinyStreamRow = {
+  /** 同一枚命运的行共一个颜色。 */
+  hue: string;
+  kind: DestinyRowKind;
+  /** head 才有：当天的分钟数。 */
+  at?: number;
+  /** head：潜在 / 注定；field：段名。 */
+  label?: string;
+  text: string;
+};
+
+function flatten(
+  list: readonly DestinyEmergence[],
+): readonly DestinyStreamRow[] {
+  const rows: DestinyStreamRow[] = [];
+
+  for (const d of list) {
+    const hue = d.hue;
+    rows.push({
+      hue,
+      kind: "head",
+      at: d.at,
+      label: d.kind === "destined" ? "注定" : "潜在",
+      text: `${d.roomName} · ${d.title}`,
+    });
+
+    const fields: readonly [string, readonly string[]][] = [
+      ["行为动机", d.motive],
+      ["剧情发展", d.plot],
+      ["行为边界", d.bounds],
+    ];
+
+    for (const [label, lines] of fields) {
+      /* 段的头一句挂标签，其余算段里的条 —— 这样折叠态每行都有内容，不会滚出一
+         行光秃秃的段名。 */
+      const [first, ...rest] = lines;
+      rows.push({ hue, kind: "field", label, text: first ?? "" });
+      for (const text of rest) rows.push({ hue, kind: "item", text });
+    }
+  }
+
+  return rows;
+}
+
+/** 一行一行滚的那份稿子。 */
+export const DESTINY_STREAM: readonly DestinyStreamRow[] =
+  flatten(DESTINY_EMERGENCES);
