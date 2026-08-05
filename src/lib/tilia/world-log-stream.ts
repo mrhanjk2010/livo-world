@@ -139,19 +139,20 @@ export function useWorldLogStream(): WorldLogFeed {
  *
  * 排队之后，滚的每一行都是真的，快慢却可以自己定：这张卡走机器那一档（0.1–0.5
  * 秒，见 `world-stream-tick.ts`），远比后端吐得快 —— 于是一上来那几百行 backfill
- * 会连着快滚四分钟左右，把攒下的历史一行行放完，之后就跟着世界的真实产出走走停停。
+ * 会连着快滚四分钟左右，把攒下的历史一行行放完。
  *
- * 停下来的那一会儿卡片是不动的，不是空着：队里没有真的可放就不往前走，表头那颗灯
- * 改成喘气 —— 它在等世界开口，不是死了。这是有意的选择：宁可停一下，也不掺假行。
+ * 放完之后不停：回头接着放攒下的那些，从头绕一圈再来。世界背面是一屏一直在转的东
+ * 西，卡住不动看着就像坏了。绕圈放的仍然是真日志，只是这一段读过了 —— 表头那颗灯
+ * 会改成喘气，说清此刻没有新的进来。宁可重放读过的，也不掺一行假的。
  */
 export type WorldLogTimeline = {
   /** 一拍一格。 */
   rows: readonly WorldLogRow[];
   /** `rows[0]` 是第几拍。 */
   start: number;
-  /** 排上队了没有 —— 没有的话卡片走手写那条老路。 */
+  /** 排上队了没有 —— 没有的话卡片走录下来那一段。 */
   live: boolean;
-  /** 队里还有没有东西。空了就是在等世界开口。 */
+  /** 放的是新到的行，还是绕回去重放攒下的那些。 */
   flowing: boolean;
 };
 
@@ -184,27 +185,14 @@ export function useWorldLogTimeline(
   /* 下一行该放 feed 里的第几行（绝对下标）。 */
   const taken = useRef(0);
   const seeded = useRef(false);
+  /* 新的放完之后，从攒下的这些里接着往下绕。这个游标不跟着新行重置。 */
+  const again = useRef(0);
 
   useEffect(() => {
     if (!feed.live) return;
 
-    const step = () => {
-      const f = latest.current;
-      const end = f.start + f.rows.length;
-      /* 攒得太多时缓冲会从头丢，丢掉的那些就别等了。 */
-      const next = Math.max(taken.current, f.start);
-
-      if (next >= end) {
-        setLine((prev) => (prev.flowing ? { ...prev, flowing: false } : prev));
-        return;
-      }
-
-      const take = seeded.current ? 1 : Math.min(SEED, end - next);
-      seeded.current = true;
-      const from = next - f.start;
-      const batch = f.rows.slice(from, from + take);
-      taken.current = next + take;
-
+    const push = (batch: readonly WorldLogRow[], fresh: boolean) => {
+      if (batch.length === 0) return;
       setLine((prev) => {
         const rows = [...prev.rows, ...batch];
         const drop = Math.max(0, rows.length - TIMELINE_KEEP);
@@ -212,9 +200,30 @@ export function useWorldLogTimeline(
           rows: drop ? rows.slice(drop) : rows,
           start: prev.start + drop,
           live: true,
-          flowing: true,
+          flowing: fresh,
         };
       });
+    };
+
+    const step = () => {
+      const f = latest.current;
+      const end = f.start + f.rows.length;
+      /* 攒得太多时缓冲会从头丢，丢掉的那些就别等了。 */
+      const next = Math.max(taken.current, f.start);
+
+      if (next < end) {
+        const take = seeded.current ? 1 : Math.min(SEED, end - next);
+        seeded.current = true;
+        const from = next - f.start;
+        push(f.rows.slice(from, from + take), true);
+        taken.current = next + take;
+        return;
+      }
+
+      /* 新的放完了，回头再放一遍攒下的 —— 这一屏不许停，但也不掺假行。 */
+      if (f.rows.length === 0) return;
+      push([f.rows[again.current % f.rows.length]], false);
+      again.current += 1;
     };
 
     /* 一串 timeout 而不是 setInterval：每一拍的间隔都要重摇。 */

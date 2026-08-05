@@ -100,7 +100,7 @@ export function WorldStreamCards() {
         title="世界一直在算"
         note={
           line.live
-            ? "接的是此刻那条流；攒下的先快放，放完就跟着世界的速度走走停停"
+            ? "接的是此刻那条流；攒下的先快放，放完了回头再放一遍，这一屏不停"
             : "录下来的一段真日志 —— 这一节车厢外面连不上世界的机房"
         }
         tick={CALC_TICK}
@@ -171,7 +171,7 @@ function StreamCard({
   tick?: TickRange;
   /** 滚的是真的账 —— 表头点一颗灯。 */
   live?: boolean;
-  /** 真的都放完了，在等世界开口 —— 那颗灯改成喘气，别让人以为是死了。 */
+  /** 新的都放完了、正绕着重放 —— 那颗灯改成喘气，说清此刻没有新的进来。 */
   waiting?: boolean;
   /** 拍子由外面打（真数据那张卡）。给了就不再自己走表。 */
   cursor?: number;
