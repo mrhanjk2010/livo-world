@@ -98,11 +98,6 @@ export function WorldStreamCards() {
       <StreamCard
         cmd="world.tail -f"
         title="世界一直在算"
-        note={
-          line.live
-            ? "接的是此刻那条流；攒下的先快放，放完了回头再放一遍，这一屏不停"
-            : "录下来的一段真日志 —— 这一节车厢外面连不上世界的机房"
-        }
         tick={CALC_TICK}
         live={line.live}
         waiting={line.live && !line.flowing}
@@ -121,13 +116,11 @@ export function WorldStreamCards() {
       <StreamCard
         cmd="destiny.watch"
         title="命运一直在涌现"
-        note="一枚命运摊开是三段：行为动机、剧情发展、行为边界"
         renderRow={(i) => <DestinyRow i={i} />}
       />
       <StreamCard
         cmd="cause.trace"
         title="因果链一直在推演"
-        note="伏笔、目标、因、果 —— 果还得交代自己怎么来的"
         renderRow={(i) => <CauseRow i={i} />}
       />
     </div>
@@ -155,7 +148,6 @@ export function WorldStreamCards() {
 function StreamCard({
   cmd,
   title,
-  note,
   tick = READ_TICK,
   live = false,
   waiting = false,
@@ -165,8 +157,6 @@ function StreamCard({
   /** 表头左边那截命令行的样子。 */
   cmd: string;
   title: string;
-  /** 展开后副标题里那半句：这一条流水到底在说什么。 */
-  note: string;
   /** 这张卡多快落一行。默认是读得完的那一档。 */
   tick?: TickRange;
   /** 滚的是真的账 —— 表头点一颗灯。 */
@@ -239,7 +229,6 @@ function StreamCard({
         open={expanded}
         cmd={cmd}
         title={title}
-        note={note}
         cursor={cursor}
         motion={motion}
         slide={slide}
@@ -265,7 +254,6 @@ function StreamSheet({
   open,
   cmd,
   title,
-  note,
   cursor,
   motion,
   slide,
@@ -275,7 +263,6 @@ function StreamSheet({
   open: boolean;
   cmd: string;
   title: string;
-  note: string;
   cursor: number;
   motion: boolean;
   slide: number;
@@ -344,7 +331,7 @@ function StreamSheet({
               className="font-mono text-[10px] leading-none"
               style={{ color: `${GREEN}73` }}
             >
-              {title} · {note}
+              {title}
             </p>
           </div>
 
