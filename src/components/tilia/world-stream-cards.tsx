@@ -607,7 +607,7 @@ function DestinyRow({ i }: { i: number }) {
  *
  * 深浅只分两层，分的不是「哪个字段更重要」，是「这是铺垫，还是结出来的那一下」：
  *
- *   亮  果，连它底下整组交代 —— 式子、因 1、因 2……、状态、链尾那行整链
+ *   亮  果，连它底下整组交代 —— LCC、因 1、因 2……、状态
  *   暗  伏笔、目标、因 —— 铺垫，一屏里退到背面去
  *
  * 果那一整组一起亮，不在组内再分层：一个果凭什么成立，是「哪几件算数了」加「凭什么
@@ -619,8 +619,10 @@ function DestinyRow({ i }: { i: number }) {
  * 的那一组。
  *
  * 果多带一点辉光。胶囊（兑现 / 呼应 / 因果）跟在【果】后头，是这一行的判决，不是注
- * 脚 —— 也是这张卡上唯一一处不走绿的东西，见 `AMBER`。整链那行不缩进：它收的是一整
- * 条链，不归某一个果。式子怎么算出来的见 `world-cause-log.ts`。
+ * 脚 —— 也是这张卡上唯一一处不走绿的东西，见 `AMBER`。
+ *
+ * LCC 那行跟因、状态一样缩进一格：它是这枚果在链上站在哪儿，归这枚果，不是另起一
+ * 件事。链怎么算出来的见 `world-cause-log.ts`。
  */
 const CAUSE_LABEL = {
   seed: "伏笔",
@@ -675,25 +677,14 @@ function CauseRow({ i }: { i: number }) {
     );
   }
 
-  if (row.kind === "step") {
-    return (
-      <>
-        <span className="livo-log-indent w-[12px] shrink-0" aria-hidden />
-        {/* 式子整句一格色：符号和短名分色只会让这行看着更碎，等宽本身已经在分栏了 */}
-        <span className="truncate" style={{ color: INK.strong }}>
-          {row.text}
-        </span>
-      </>
-    );
-  }
-
   if (row.kind === "chain") {
     return (
       <>
-        {/* 整链不缩进：它是这一条链的收口，不是某个果的交代 */}
+        <span className="livo-log-indent w-[12px] shrink-0" aria-hidden />
         <span className="shrink-0" style={{ color: INK.mid }}>
-          {row.label}
+          LCC
         </span>
+        {/* 链整句一格色：符号和短名分色只会让这行看着更碎，等宽本身已经在分栏了 */}
         <span className="truncate" style={{ color: INK.strong }}>
           {row.text}
         </span>
