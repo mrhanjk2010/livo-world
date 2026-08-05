@@ -603,11 +603,13 @@ function DestinyRow({ i }: { i: number }) {
  *
  * 分行与字段见 `world-cause-log.ts`。这里只管一件事 —— 让眼睛先接住果。
  *
- * 果那一行提到最亮并带一点辉光，尾巴上挂着它和因怎么咬上的（兑现 / 呼应 / 因
- * 果）；紧跟着缩进几行交代它凭什么落下 —— 哪几件算了数（因 1、因 2……），还有那
- * 个差一口气就落不下来的契机（状态）。伏笔和目标压到最暗：它们是背景，不是此刻发
- * 生的事。一屏滚过去的节奏因此是「暗、暗、亮一行、几行小字」—— 那一亮就是一次推
- * 演落地。
+ * 这一屏只有一样东西是亮的：果的那句正文。别的全压成同一层低语 —— 伏笔、目标、
+ * 因，连果自己的交代（因 1、因 2……和那个差一口气就落不下来的契机「状态」）也一
+ * 样，字段名再低一档。所以一屏滚过去是「一片低语里蹦出一行亮的」，那一亮就是一次
+ * 推演落地；想知道它凭什么落下，再往那几行低语里看。
+ *
+ * 分档没有拉细：多分一档不如让唯一那一亮更醒目。果那一行还带一点辉光，尾巴上挂着
+ * 它和因怎么咬上的（兑现 / 呼应 / 因果），胶囊也压到低语那一层。
  *
  * 这张卡仍是那一支绿，主次全交给透明度；换色是中间那张卡分段用的手段。
  */
@@ -624,10 +626,8 @@ function CauseRow({ i }: { i: number }) {
   if (row.kind === "effect") {
     return (
       <>
-        <span
-          className="shrink-0"
-          style={{ color: INK.bright, textShadow: `0 0 9px ${GREEN}4d` }}
-        >
+        {/* 连「果」这两个字也压着：亮的该是那句话本身，不是它的字段名 */}
+        <span className="shrink-0" style={{ color: INK.faint }}>
           【{CAUSE_LABEL.effect}】
         </span>
         <span
@@ -638,7 +638,7 @@ function CauseRow({ i }: { i: number }) {
         </span>
         <span
           className="livo-log-chip ml-auto shrink-0 rounded-[3px] px-[3px] py-[1px] text-[9px] leading-none"
-          style={{ color: INK.strong, background: `${GREEN}24` }}
+          style={{ color: INK.soft, background: `${GREEN}17` }}
         >
           {row.relation}
         </span>
@@ -651,10 +651,10 @@ function CauseRow({ i }: { i: number }) {
       <>
         {/* 缩进那一格是给眼睛的：这几行是上面那个果的交代，不是新起一件事 */}
         <span className="livo-log-indent w-[12px] shrink-0" aria-hidden />
-        <span className="shrink-0 tabular-nums" style={{ color: INK.soft }}>
+        <span className="shrink-0 tabular-nums" style={{ color: INK.faint }}>
           因{row.index}
         </span>
-        <span className="truncate" style={{ color: INK.mid }}>
+        <span className="truncate" style={{ color: INK.soft }}>
           {row.text}
         </span>
       </>
@@ -665,25 +665,22 @@ function CauseRow({ i }: { i: number }) {
     return (
       <>
         <span className="livo-log-indent w-[12px] shrink-0" aria-hidden />
-        <span className="shrink-0" style={{ color: INK.soft }}>
+        <span className="shrink-0" style={{ color: INK.faint }}>
           状态
         </span>
-        <span className="truncate" style={{ color: INK.strong }}>
+        <span className="truncate" style={{ color: INK.soft }}>
           {row.text}
         </span>
       </>
     );
   }
 
-  /* 伏笔和目标是背景，压得比因还暗一档。 */
-  const tone = row.kind === "cause" ? INK.mid : INK.soft;
-
   return (
     <>
-      <span className="shrink-0" style={{ color: tone }}>
+      <span className="shrink-0" style={{ color: INK.faint }}>
         【{CAUSE_LABEL[row.kind]}】
       </span>
-      <span className="truncate" style={{ color: tone }}>
+      <span className="truncate" style={{ color: INK.soft }}>
         {row.text}
       </span>
     </>
